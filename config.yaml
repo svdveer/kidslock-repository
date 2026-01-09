@@ -1,5 +1,5 @@
 name: "KidsLock Manager"
-version: "1.0.0"
+version: "1.0.1"
 slug: "kidslock_manager"
 description: "Beheer schermtijd voor Android TV"
 url: "https://github.com/svdveer/kidslock-manager"
