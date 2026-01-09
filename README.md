@@ -1,9 +1,3 @@
-NOT WORKING YET
-
-
---- /dev/null
-+++ /config/addons/kidslock_manager/README.md
-@@ -0,0 +1,16 @@
 +# KidsLock Manager
 +
 +Een lokale Home Assistant Add-on die fungeert als centrale controller voor het KidsLock Android TV ecosysteem.
