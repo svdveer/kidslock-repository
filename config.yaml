@@ -17,6 +17,7 @@ schema:
       ip: str
       daily_limit: int
       bedtime: str
+      no_limit_mode: bool
 ingress: true
 ingress_port: 8000
 panel_icon: mdi:lock-clock

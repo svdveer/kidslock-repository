@@ -32,6 +32,8 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS events
                  (timestamp TEXT, tv_name TEXT, event_type TEXT, reason TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS tv_state
+                 (tv_name TEXT PRIMARY KEY, remaining_minutes REAL, last_update TEXT)''')
     conn.commit()
     conn.close()
 
@@ -60,15 +62,43 @@ def get_logs():
     except Exception:
         return []
 
+def save_state(tv_name, minutes):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+        c.execute("INSERT OR REPLACE INTO tv_state (tv_name, remaining_minutes, last_update) VALUES (?, ?, ?)", 
+                  (tv_name, minutes, today))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DB Save Error: {e}")
+
+def load_state(tv_name, daily_limit):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT remaining_minutes, last_update FROM tv_state WHERE tv_name=?", (tv_name,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            saved_minutes, last_update = row
+            if last_update == datetime.now().strftime("%Y-%m-%d"):
+                return float(saved_minutes)
+    except Exception as e:
+        logger.error(f"DB Load Error: {e}")
+    return daily_limit
+
 # Global State
 data_lock = threading.RLock()
 tv_states = {}
 for tv in options.get("tvs", []):
+    saved_time = load_state(tv["name"], tv["daily_limit"])
     tv_states[tv["name"]] = {
         "config": tv,
         "online": False,
         "locked": False,
-        "remaining_minutes": tv["daily_limit"],
+        "remaining_minutes": saved_time,
         "manual_override": False
     }
 
@@ -166,7 +196,7 @@ def control_tv(tv_name, action, reason):
     try:
         url = f"http://{ip}:8080/{action}"
         # Run in thread to avoid blocking
-        threading.Thread(target=lambda: requests.post(url, timeout=5)).start()
+        threading.Thread(target=lambda: requests.post(url, timeout=5), daemon=True).start()
         
         state["locked"] = (action == "lock")
         log_event(tv_name, action.upper(), reason)
@@ -212,7 +242,10 @@ def monitor_loop():
                 state["online"] = is_online
                 
                 if is_online and not state["locked"]:
-                    state["remaining_minutes"] = max(0, state["remaining_minutes"] - delta_minutes)
+                    # Only deduct time if no_limit_mode is FALSE
+                    if not state["config"].get("no_limit_mode", False):
+                        state["remaining_minutes"] = max(0, state["remaining_minutes"] - delta_minutes)
+                        save_state(tv_name, state["remaining_minutes"])
                 
                 # Check Bedtime
                 bedtime_str = state["config"]["bedtime"]

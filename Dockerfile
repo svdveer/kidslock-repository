@@ -1,8 +1,13 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# Install Python and pip
-RUN apk add --no-cache python3 py3-pip
+# Install Python, pip and system tools (ping, bash, curl)
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    iputils \
+    bash \
+    curl
 
 # Copy app data
 COPY . /app
