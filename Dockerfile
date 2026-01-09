@@ -9,7 +9,7 @@ COPY . /app
 WORKDIR /app
 
 # Install Python dependencies
-RUN pip3 install fastapi uvicorn jinja2 requests --break-system-packages
+RUN pip3 install fastapi uvicorn jinja2 requests paho-mqtt --break-system-packages
 
 # Copy and execute run script
 COPY run.sh /run.sh
