@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv bashio
+#!/bin/bash
 set -e
 
 echo "Starting KidsLock Manager..."
