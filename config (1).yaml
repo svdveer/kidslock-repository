@@ -1,0 +1,39 @@
+--- /addons/kidslock_manager/config.yaml
++++ /addons/kidslock_manager/config.yaml
+@@ -0,0 +1,33 @@
++name: "KidsLock Manager"
++version: "1.0.0"
++slug: "kidslock_manager"
++description: "Central controller for KidsLock Android TV ecosystem"
++url: "https://github.com/svdveer/kidslock-manager"
++arch:
++  - aarch64
++  - amd64
++  - armhf
++  - armv7
++  - i386
++startup: application
++boot: auto
++ingress: true
++ingress_port: 8000
++panel_icon: mdi:lock-clock
++options:
++  mqtt_host: "core-mosquitto"
++  mqtt_port: 1883
++  mqtt_user: "addons"
++  mqtt_password: ""
++  tvs:
++    - name: "Woonkamer"
++      ip: "192.168.1.100"
++      daily_limit: 120
++      bedtime: "20:00"
++schema:
++  mqtt_host: str
++  mqtt_port: int
++  mqtt_user: str
++  mqtt_password: str
++  tvs:
++    - name: str
++      ip: str
++      daily_limit: int
++      bedtime: str
