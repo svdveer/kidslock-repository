@@ -1,6 +1,0 @@
-fastapi
-uvicorn
-paho-mqtt<2.0.0
-requests
-jinja2
-python-multipart
