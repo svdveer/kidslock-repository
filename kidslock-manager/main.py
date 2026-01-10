@@ -9,15 +9,22 @@ import uvicorn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
-OPTIONS_PATH = "/data/options.json"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    # Tabel voor TV instellingen
+    # Basis tabel aanmaken
     conn.execute('''CREATE TABLE IF NOT EXISTS tv_config 
                    (name TEXT PRIMARY KEY, ip TEXT, daily_limit INTEGER, bedtime TEXT)''')
-    # Tabel voor de huidige staat (resterende tijd)
-    conn.execute('CREATE TABLE IF NOT EXISTS tv_state (tv_name TEXT PRIMARY KEY, remaining REAL, last_reset TEXT)')
+    
+    # MIGRATIE: Check of no_limit kolom bestaat, zo niet: toevoegen
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(tv_config)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'no_limit' not in columns:
+        logger.info("Database migratie: Kolom 'no_limit' toevoegen...")
+        conn.execute('ALTER TABLE tv_config ADD COLUMN no_limit INTEGER DEFAULT 0')
+    
+    conn.execute('CREATE TABLE IF NOT EXISTS tv_state (tv_name TEXT PRIMARY KEY, remaining REAL)')
     conn.commit()
     conn.close()
 
@@ -29,29 +36,27 @@ tv_states = {}
 def load_tvs_from_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT name, ip, daily_limit, bedtime FROM tv_config")
+    cursor.execute("SELECT name, ip, daily_limit, bedtime, no_limit FROM tv_config")
     rows = cursor.fetchall()
     conn.close()
     
     with data_lock:
         current_names = [row[0] for row in rows]
-        # Verwijder TV's die niet meer bestaan
         for name in list(tv_states.keys()):
             if name not in current_names:
                 del tv_states[name]
         
-        # Update of voeg toe
-        for name, ip, limit, bedtime in rows:
+        for name, ip, limit, bedtime, no_limit in rows:
             if name not in tv_states:
                 tv_states[name] = {
-                    "ip": ip, "limit": limit, "bedtime": bedtime,
+                    "ip": ip, "limit": limit, "bedtime": bedtime, "no_limit": no_limit,
                     "online": False, "locked": False, "remaining": float(limit)
                 }
             else:
-                tv_states[name].update({"ip": ip, "limit": limit, "bedtime": bedtime})
+                tv_states[name].update({"ip": ip, "limit": limit, "bedtime": bedtime, "no_limit": no_limit})
 
 def monitor():
-    logger.info("Monitor loop gestart.")
+    logger.info("Monitor loop gestart met Onbeperkt-ondersteuning.")
     last_tick = time.time()
     while True:
         load_tvs_from_db()
@@ -60,15 +65,23 @@ def monitor():
         
         with data_lock:
             for name, s in tv_states.items():
-                # Check status
+                # Bereikbaarheid check
                 res = subprocess.run(['ping', '-c', '1', '-W', '1', s["ip"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 s["online"] = (res.returncode == 0)
                 
-                # Tijd aftrek als TV aan is en niet op slot
+                # ONBEPERKT MODUS LOGICA
+                if s.get("no_limit") == 1:
+                    if s["locked"]:
+                        try:
+                            requests.post(f"http://{s['ip']}:8080/unlock", timeout=1.5)
+                            s["locked"] = False
+                        except: pass
+                    continue # Geen tijd aftrekken
+                
+                # NORMALE MODUS LOGICA
                 if s["online"] and not s["locked"]:
                     s["remaining"] = max(0, s["remaining"] - delta)
                 
-                # Automatische lock check (limit bereikt)
                 if s["remaining"] <= 0 and not s["locked"]:
                     try:
                         requests.post(f"http://{s['ip']}:8080/lock", timeout=1.5)
@@ -80,8 +93,6 @@ threading.Thread(target=monitor, daemon=True).start()
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-
-# --- Routes ---
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -101,9 +112,9 @@ async def settings(request: Request):
     return templates.TemplateResponse("settings.html", {"request": request, "tvs": tvs})
 
 @app.post("/add_tv")
-async def add_tv(name: str = Form(...), ip: str = Form(...), limit: int = Form(...), bedtime: str = Form(...)):
+async def add_tv(name: str = Form(...), ip: str = Form(...), limit: int = Form(...), bedtime: str = Form(...), no_limit: int = Form(0)):
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("INSERT OR REPLACE INTO tv_config VALUES (?, ?, ?, ?)", (name, ip, limit, bedtime))
+    conn.execute("INSERT OR REPLACE INTO tv_config VALUES (?, ?, ?, ?, ?)", (name, ip, limit, bedtime, no_limit))
     conn.commit()
     conn.close()
     return RedirectResponse(url="settings", status_code=303)
