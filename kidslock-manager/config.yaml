@@ -1,11 +1,12 @@
 name: "KidsLock Manager"
 version: "1.0.1"
+slug: "kidslock_manager"
 description: "Beheer schermtijd voor Android TV"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
   - amd64
-  - armv7
+  - armv7S
 startup: application
 boot: auto
 init: false
