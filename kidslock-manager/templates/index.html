@@ -1,51 +1,68 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>KidsLock</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; width: 100%; max-width: 400px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-top: 5px solid #ccc; }
+        body { font-family: -apple-system, sans-serif; background: #f4f7f9; padding: 20px; color: #333; }
+        .container { max-width: 500px; margin: 0 auto; }
+        .card { background: white; border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-top: 5px solid #ccc; }
         .card.online { border-top-color: #34a853; }
         .card.locked { border-top-color: #ea4335; }
-        .btn { padding: 12px; border: none; border-radius: 8px; cursor: pointer; color: white; font-weight: bold; flex: 1; text-align: center; }
-        .btn-blue { background: #1a73e8; }
-        .btn-red { background: #ea4335; }
-        .btn-green { background: #34a853; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .progress-container { background: #eee; border-radius: 10px; height: 10px; margin: 15px 0; overflow: hidden; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #34a853, #fbbc05, #ea4335); transition: width 0.5s; }
+        .stats { display: flex; justify-content: space-between; text-align: center; margin-bottom: 15px; }
+        .stat-val { font-size: 20px; font-weight: bold; }
+        .stat-label { font-size: 11px; color: #888; text-transform: uppercase; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .btn { padding: 12px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .btn-blue { background: #e8f0fe; color: #1a73e8; }
+        .btn-action { background: #1a1f36; color: white; }
+        .btn-reset { background: #f8f9fa; color: #5f6368; grid-column: span 2; border: 1px solid #ddd; }
     </style>
 </head>
 <body>
-    <h1>🔐 KidsLock</h1>
-    <a href="settings" style="margin-bottom: 20px; display: block; text-decoration: none; color: #1a73e8;">⚙ Instellingen</a>
+    <div class="container">
+        <h1>🔐 KidsLock v1.6.0</h1>
+        <p style="text-align:center"><a href="settings" style="color:#1a73e8; text-decoration:none">⚙️ SYSTEEM INSTELLINGEN</a></p>
 
-    {% for tv in tvs %}
-    <div class="card {% if tv.online %}online{% endif %} {% if tv.locked %}locked{% endif %}">
-        <h2>{{ tv.name }}</h2>
-        <div style="font-size: 2.5em; font-weight: bold; margin-bottom: 15px;">
-            {% if tv.no_limit == 1 %} ∞ {% else %} {{ tv.remaining|int }} <span style="font-size: 0.5em;">min</span> {% endif %}
+        {% for tv in tvs %}
+        {% set usage = (tv.elapsed / tv.limit * 100) if tv.limit > 0 else 0 %}
+        <div class="card {% if tv.online %}online{% endif %} {% if tv.locked %}locked{% endif %}">
+            <div class="header">
+                <h2 style="margin:0">{{ tv.name }}</h2>
+                <small style="color: {{ '#34a853' if tv.online else '#888' }}">● {{ 'Online' if tv.online else 'Offline' }}</small>
+            </div>
+
+            <div class="progress-container">
+                <div class="progress-bar" style="width: {{ usage if usage < 100 else 100 }}%"></div>
+            </div>
+
+            <div class="stats">
+                <div><div class="stat-label">Gebruikt</div><div class="stat-val">{{ tv.elapsed|int }}m</div></div>
+                <div><div class="stat-label">Resterend</div><div class="stat-val">{% if tv.no_limit %}∞{% else %}{{ tv.remaining|int }}m{% endif %}</div></div>
+            </div>
+
+            <div class="controls">
+                <button onclick="apiCall('api/add_time/{{ tv.name }}', 'minutes=15')" class="btn btn-blue">+15m</button>
+                <button onclick="apiCall('api/add_time/{{ tv.name }}', 'minutes=30')" class="btn btn-blue">+30m</button>
+                <button onclick="apiCall('api/toggle_lock/{{ tv.name }}')" class="btn btn-action">
+                    {{ '🔓 Ontgrendelen' if tv.locked else '🔒 Nu Vergrendelen' }}
+                </button>
+                <button onclick="if(confirm('Timer resetten?')) apiCall('api/reset/{{ tv.name }}')" class="btn btn-reset">🔄 Reset Daglimiet</button>
+            </div>
         </div>
-        <div style="display: flex; gap: 10px;">
-            {% if tv.no_limit != 1 %}
-            <button onclick="apiCall('api/add_time/{{ tv.name }}', 'minutes=15')" class="btn btn-blue">+15m</button>
-            {% endif %}
-            <button onclick="apiCall('api/toggle_lock/{{ tv.name }}')" class="btn {% if tv.locked %}btn-green{% else %}btn-red{% endif %}">
-                {% if tv.locked %}Unlock{% else %}Lock{% endif %}
-            </button>
-        </div>
+        {% endfor %}
     </div>
-    {% endfor %}
 
     <script>
-        async function apiCall(url, bodyContent = null) {
-            const options = { method: 'POST' };
-            if (bodyContent) {
-                options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-                options.body = bodyContent;
-            }
-            try {
-                const response = await fetch(url, options);
-                if (response.ok) { window.location.reload(); }
-            } catch (e) { console.error("Fout:", e); }
+        async function apiCall(url, body = null) {
+            const opt = { method: 'POST' };
+            if (body) { opt.headers = {'Content-Type': 'application/x-www-form-urlencoded'}; opt.body = body; }
+            await fetch(url, opt);
+            window.location.reload();
         }
     </script>
 </body>

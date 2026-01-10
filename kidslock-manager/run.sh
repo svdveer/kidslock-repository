@@ -1,6 +1,6 @@
-#!/usr/bin/with-contenv bashio
+#!/usr/bin/with-s6-overlay-shell bash
 
-echo "--- KidsLock Manager v1.4.5 Starten ---"
+echo "--- 🔐 KidsLock Manager v1.6.0 start op ---"
 
-# Gebruik 'exec' om Python als hoofdproces (PID 1) te laten draaien
-exec python3 /app/main.py
+# Start de Python applicatie
+python3 /app/main.py

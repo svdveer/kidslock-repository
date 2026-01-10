@@ -1,23 +1,38 @@
-# Changelog - KidsLock Manager
+# Changelog
 
-## [1.3.0] - 2026-01-10
-### Added
-- **Settings Interface**: Volledige instellingenpagina (`/settings`) toegevoegd. Beheer je TV's nu direct in de browser.
-- **SQLite Database**: Configuratie wordt nu persistent opgeslagen in `kidslock.db` in plaats van YAML.
-- **Dynamische Monitor**: Nieuwe TV's worden direct opgepikt door de monitor-loop zonder herstart.
+Alle belangrijke wijzigingen aan het **KidsLock Manager** project worden in dit bestand bijgehouden.
 
-### Fixed
-- **Ingress 404 Errors**: Redirect-logica geoptimaliseerd voor Home Assistant Ingress (geen "Not Found" meer na acties).
-- **Stability**: Harde timeouts op netwerkverzoeken voorkomen dat de add-on crasht als TV's uit staan (PID 1 fix).
+---
 
-## [1.1.9.015] - 2026-01-10
-### Fixed
-- Reparatie van de 303 Redirect-loop binnen de proxy-omgeving.
+## [1.6.0] - 2024-05-21
 
-## [1.1.9.014] - 2026-01-10
-### Added
-- Netwerk timeouts (1.5s) toegevoegd voor verhoogde stabiliteit bij offline apparaten.
+### ✨ Nieuw
+- **Kijktijd Tracking (Elapsed Time)**: De add-on houdt nu per TV bij hoeveel minuten er die dag daadwerkelijk is gekeken.
+- **Visuele Progressiebalk**: De Web UI heeft een nieuwe 'look' gekregen met een dynamische voortgangsbalk die van groen naar rood kleurt naarmate de daglimiet wordt bereikt.
+- **MQTT Discovery v2**: Alle entiteiten worden nu automatisch aangemaakt in Home Assistant onder één apparaat per TV.
+- **Interactieve MQTT Buttons**: Directe knoppen in Home Assistant voor:
+  - `+15 Minuten`
+  - `+30 Minuten`
+  - `Reset Daglimiet`
+- **Nachtelijke Reset**: Automatische reset-logica die om 00:00 uur de resterende tijd herstelt en de kijktijd op nul zet.
 
-## [1.1.9] - 2026-01-09
-### Initial
-- Eerste stabiele release met handmatige YAML-configuratie.
+### 🚀 Verbeteringen
+- **Data Persistentie**: De verstreken kijktijd wordt nu opgeslagen in de SQLite database, waardoor gegevens behouden blijven na een herstart van de add-on.
+- **Mobiele UI**: De interface is geoptimaliseerd voor gebruik binnen de Home Assistant Companion app.
+- **API Consolidatie**: De backend API is gestroomlijnd naar een universele handler voor snellere responstijden.
+
+### 🔧 Fixes
+- Probleem opgelost waarbij MQTT-entiteiten soms verdwenen na een herstart van de broker.
+- UTF-8 karakterweergave verbeterd voor speciale iconen in de Web UI.
+
+---
+
+## [1.5.3] - 2024-05-15
+- Initiële MQTT ondersteuning toegevoegd.
+- Overstap naar Alpine-based Docker image voor snellere installatie.
+- Switch entiteit toegevoegd voor handmatige vergrendeling.
+
+---
+
+## [1.0.0] - 2024-04-01
+- Eerste stabiele release met basis tijdslimieten en Android TV koppeling.
