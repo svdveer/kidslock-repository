@@ -1,5 +1,5 @@
 name: "KidsLock Manager"
-version: "1.0.7"
+version: "1.0.8"
 slug: "kidslock-manager"
 description: "Beheer schermtijd voor Android TV"
 url: "https://github.com/svdveer/kidslock-repository"
@@ -13,6 +13,11 @@ init: false
 services:
   - mqtt:want
 options:
+  mqtt:
+    host: "core-mosquitto"
+    port: 1883
+    username: "mqtt-user"
+    password: "mijn-wachtwoord"
   tvs:
     - name: "Woonkamer"
       ip: "192.168.1.100"
@@ -20,6 +25,11 @@ options:
       bedtime: "20:00"
       no_limit_mode: false
 schema:
+  mqtt:
+    host: str
+    port: int
+    username: str
+    password: str
   tvs:
     - name: str
       ip: str
