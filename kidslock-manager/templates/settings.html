@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>KidsLock Instellingen</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; }
+        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto 20px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; color: white; font-weight: bold; text-decoration: none; }
+        .btn-blue { background: #1a73e8; }
+        .btn-red { background: #ea4335; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <div style="max-width: 600px; margin: 0 auto 20px;">
+        <a href="./" class="btn btn-blue">⬅ Terug naar Dashboard</a>
+    </div>
+
+    <div class="card">
+        <h2>TV Toevoegen / Aanpassen</h2>
+        <form action="add_tv" method="post">
+            <input type="text" name="name" placeholder="Naam (bijv. Amy)" required>
+            <input type="text" name="ip" placeholder="IP Adres" required>
+            <input type="number" name="limit" placeholder="Dagelijkse limiet (minuten)" value="120">
+            <input type="text" name="bedtime" placeholder="Bedtijd (bijv. 21:00)" value="21:00">
+            <button type="submit" class="btn btn-blue" style="width: 100%;">Opslaan</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Huidige TV's</h2>
+        <table>
+            <tr><th>Naam</th><th>IP</th><th>Actie</th></tr>
+            {% for tv in tvs %}
+            <tr>
+                <td>{{ tv[0] }}</td>
+                <td>{{ tv[1] }}</td>
+                <td>
+                    <form action="delete_tv/{{ tv[0] }}" method="post">
+                        <button type="submit" class="btn btn-red">Wis</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>

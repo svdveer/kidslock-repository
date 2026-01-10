@@ -1,19 +1,23 @@
-# 📝 Changelog - KidsLock Manager
+# Changelog - KidsLock Manager
 
-## 1.1.9 (Huidige Versie)
-- 🚀 **Definitieve Ingress Fix**: Alle formulier-acties zijn nu relatief gemaakt. Geen `404 Not Found` meer na het klikken op vergrendel-knoppen.
-- 🔗 **Slimme Redirects**: De webserver begrijpt nu de Ingress-tunnel van Home Assistant beter door gebruik van `./` redirects.
-- 🎨 **UI Optimalisatie**: De interface schaalt nu beter op mobiele telefoons (Dashboard-vriendelijk).
+## [1.3.0] - 2026-01-10
+### Added
+- **Settings Interface**: Volledige instellingenpagina (`/settings`) toegevoegd. Beheer je TV's nu direct in de browser.
+- **SQLite Database**: Configuratie wordt nu persistent opgeslagen in `kidslock.db` in plaats van YAML.
+- **Dynamische Monitor**: Nieuwe TV's worden direct opgepikt door de monitor-loop zonder herstart.
 
-## 1.1.8
-- 🛠️ **Foutafhandeling**: Timeout toegevoegd aan TV-verbindingen. De interface "hangt" niet meer als een TV offline is.
-- 🛡️ **Verbinding Fix**: Problemen met weigerende verbindingen (Connection Refused) worden nu netjes gelogd in de Add-on logs.
-- ⏱️ **Default Waarden**: De config is korter omdat de add-on nu zelf begrijpt dat 120 min en 21:00 de standaard zijn.
+### Fixed
+- **Ingress 404 Errors**: Redirect-logica geoptimaliseerd voor Home Assistant Ingress (geen "Not Found" meer na acties).
+- **Stability**: Harde timeouts op netwerkverzoeken voorkomen dat de add-on crasht als TV's uit staan (PID 1 fix).
 
-## 1.1.7
-- ✨ **Onbeperkt Modus**: Visuele ondersteuning voor de "∞" status op het dashboard.
-- 🕒 **Pauze Logica**: De klok stopt nu direct met aftellen als de TV niet meer reageert op een Ping.
-- 🔒 **Auto-Lock**: Verbeterde bedtijd-controle die strikter handhaaft.
+## [1.1.9.015] - 2026-01-10
+### Fixed
+- Reparatie van de 303 Redirect-loop binnen de proxy-omgeving.
 
-## 1.1.0 - 1.1.6
-- Initiële versies met MQTT integratie en basis Web UI.
+## [1.1.9.014] - 2026-01-10
+### Added
+- Netwerk timeouts (1.5s) toegevoegd voor verhoogde stabiliteit bij offline apparaten.
+
+## [1.1.9] - 2026-01-09
+### Initial
+- Eerste stabiele release met handmatige YAML-configuratie.
