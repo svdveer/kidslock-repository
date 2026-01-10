@@ -91,11 +91,8 @@ def on_connect(client, userdata, flags, rc):
             update_mqtt_state(tv_name)
             slug = tv_name.lower().replace(" ", "_")
             client.subscribe(f"kidslock/{slug}/set")
-    else:
-        logger.error(f"❌ MQTT Fout {rc}")
 
 mqtt_client.on_connect = on_connect
-
 if mqtt_conf.get("username"):
     mqtt_client.username_pw_set(mqtt_conf["username"], mqtt_conf.get("password"))
 
@@ -147,15 +144,13 @@ def monitor_loop():
     last_day = datetime.now().day
     last_tick = time.time()
     
-    # Wacht 10 sec zodat Supervisor/MQTT stabiel zijn
-    time.sleep(10)
+    time.sleep(10) # Opstart-stabilisatie
     
     while True:
         delta = (time.time() - last_tick) / 60.0
         last_tick = time.time()
         now = datetime.now()
         
-        # Dagelijkse Reset
         if now.day != last_day:
             with data_lock:
                 for n, s in tv_states.items():
@@ -169,15 +164,13 @@ def monitor_loop():
                 is_online = (os.system(f"ping -c 1 -W 1 {state['config']['ip']} > /dev/null 2>&1") == 0)
                 state["online"] = is_online
                 
-                # --- NO LIMIT MODE CHECK ---
+                # FIX: Onbeperkt modus slaat alle lock-logica over
                 if state["config"].get("no_limit_mode", False):
-                    # Als onbeperkt aan staat, forceren we een unlock (tenzij handmatig overschreven)
                     if state["locked"] and not state["manual_override"]:
-                        control_tv(name, "unlock", "Onbeperkte modus actief")
+                        control_tv(name, "unlock", "Onbeperkt actief")
                     update_mqtt_state(name)
-                    continue # Sla tijd-aftrek en bedtijd over voor deze TV
+                    continue 
 
-                # --- NORMALE LOGICA ---
                 if is_online and not state["locked"]:
                     state["remaining_minutes"] = max(0, state["remaining_minutes"] - delta)
                     save_state(name, state["remaining_minutes"])
@@ -218,6 +211,7 @@ async def read_root(request: Request):
             })
     return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs})
 
+# FIX: Gebruik relatieve redirects (./) voor HA Ingress
 @app.post("/add_time/{tv_name}")
 async def add_time(tv_name: str, minutes: int = Form(...)):
     with data_lock:
