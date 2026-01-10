@@ -6,7 +6,6 @@ from fastapi.templating import Jinja2Templates
 import uvicorn
 import paho.mqtt.client as mqtt
 
-# --- Initialisatie ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 OPTIONS_PATH = "/data/options.json"
@@ -37,24 +36,19 @@ for tv in options.get("tvs", []):
         "remaining_minutes": float(limit), "manual_override": False
     }
 
-# --- Functies ---
 def is_online(ip):
     try:
-        # Korte ping timeout van 1 seconde
         res = subprocess.run(['ping', '-c', '1', '-W', '1', str(ip)], 
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return res.returncode == 0
     except: return False
 
 def send_action(ip, action):
-    """Veilig acties sturen naar de TV zonder de app te blokkeren"""
     try:
         requests.post(f"http://{ip}:8080/{action}", timeout=1.5)
         return True
-    except:
-        return False
+    except: return False
 
-# --- Monitor Loop ---
 def monitor():
     global first_run_done
     time.sleep(5)
@@ -66,31 +60,24 @@ def monitor():
         with data_lock:
             for name, state in tv_states.items():
                 state["online"] = is_online(state["config"]["ip"])
-                
                 if state["config"].get("no_limit_mode", False):
                     if state["locked"] and not state["manual_override"]:
-                        if send_action(state["config"]["ip"], "unlock"):
-                            state["locked"] = False
+                        if send_action(state["config"]["ip"], "unlock"): state["locked"] = False
                     continue
-
                 if state["online"] and not state["locked"]:
                     state["remaining_minutes"] = max(0, state["remaining_minutes"] - delta)
-                
                 bt_str = state["config"].get("bedtime") or "21:00"
                 try: bt = datetime.strptime(bt_str, "%H:%M").time()
                 except: bt = datetime.strptime("21:00", "%H:%M").time()
                 is_bt = (now.time() > bt or now.time() < datetime.strptime("04:00", "%H:%M").time())
-                
                 if first_run_done and not state["manual_override"]:
                     if (state["remaining_minutes"] <= 0 or is_bt) and not state["locked"]:
-                        if send_action(state["config"]["ip"], "lock"):
-                            state["locked"] = True
+                        if send_action(state["config"]["ip"], "lock"): state["locked"] = True
         first_run_done = True
         time.sleep(30)
 
 threading.Thread(target=monitor, daemon=True).start()
 
-# --- FastAPI ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
@@ -101,11 +88,9 @@ async def home(request: Request):
         for name, s in tv_states.items():
             is_unlimited = s["config"].get("no_limit_mode", False)
             tvs_display.append({
-                "name": name,
-                "online": s["online"],
+                "name": name, "online": s["online"], 
                 "remaining": "∞" if is_unlimited else int(s["remaining_minutes"]),
-                "locked": s["locked"],
-                "status_msg": "ONBEPERKT" if is_unlimited else ("Online" if s["online"] else "Uit")
+                "locked": s["locked"], "status_msg": "ONBEPERKT" if is_unlimited else ("Online" if s["online"] else "Uit")
             })
     return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs_display})
 
@@ -114,9 +99,7 @@ async def toggle(name: str):
     with data_lock:
         if name in tv_states:
             action = "unlock" if tv_states[name]["locked"] else "lock"
-            ip = tv_states[name]["config"]["ip"]
-            # Gebruik de veilige send_action
-            send_action(ip, action)
+            send_action(tv_states[name]["config"]["ip"], action)
             tv_states[name]["locked"] = not tv_states[name]["locked"]
             tv_states[name]["manual_override"] = True
     return RedirectResponse(url="./", status_code=303)
