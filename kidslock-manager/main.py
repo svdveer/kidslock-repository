@@ -8,51 +8,59 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 OPTIONS_PATH = "/data/options.json"
 
-# Veilig inladen van de schemaloze config
 def load_options():
     try:
         if os.path.exists(OPTIONS_PATH):
             with open(OPTIONS_PATH, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                return data if isinstance(data, dict) else {"tvs": []}
     except Exception as e:
-        logger.error(f"Configuratie kon niet worden geladen: {e}")
+        logger.error(f"Configuratie kon niet worden gelezen: {e}")
     return {"tvs": []}
 
-options = load_options()
-data_lock = threading.RLock()
-tv_states = {}
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
-# Initialiseer TV's op basis van de YAML input
-for tv in options.get("tvs", []):
-    name = tv.get("name", "Onbekend")
-    ip = tv.get("ip")
-    if ip:
-        limit = tv.get("daily_limit", 120)
-        tv_states[name] = {
-            "config": tv,
-            "online": False,
-            "locked": False,
-            "remaining_minutes": float(limit)
-        }
+# Initialisatie van data
+options = load_options()
+tv_states = {}
+data_lock = threading.RLock()
+
+# Veilig TV's laden, zelfs als de lijst leeg is
+tvs_list = options.get("tvs")
+if isinstance(tvs_list, list):
+    for tv in tvs_list:
+        name = tv.get("name", "Onbekende TV")
+        ip = tv.get("ip")
+        if ip:
+            tv_states[name] = {
+                "config": tv,
+                "online": False,
+                "locked": False,
+                "remaining_minutes": float(tv.get("daily_limit", 120))
+            }
 
 def is_online(ip):
     try:
-        res = subprocess.run(['ping', '-c', '1', '-W', '1', str(ip)], stdout=subprocess.DEVNULL)
+        # Snelle ping (1 seconde timeout) om vastlopen te voorkomen
+        res = subprocess.run(['ping', '-c', '1', '-W', '1', str(ip)], 
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return res.returncode == 0
-    except: return False
+    except:
+        return False
 
 def monitor():
+    logger.info("Monitor thread gestart.")
     while True:
         with data_lock:
             for name, state in tv_states.items():
                 ip = state["config"].get("ip")
-                state["online"] = is_online(ip)
+                if ip:
+                    state["online"] = is_online(ip)
         time.sleep(30)
 
+# Start monitor alleen als er TV's zijn, maar laat de app hoe dan ook draaien
 threading.Thread(target=monitor, daemon=True).start()
-
-app = FastAPI()
-templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -63,7 +71,7 @@ async def home(request: Request):
                 "name": name,
                 "online": s["online"],
                 "locked": s["locked"],
-                "remaining": int(s["remaining_minutes"])
+                "remaining": int(s.get("remaining_minutes", 0))
             })
     return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs_display})
 
@@ -71,13 +79,13 @@ async def home(request: Request):
 async def toggle(name: str):
     with data_lock:
         if name in tv_states:
-            action = "unlock" if tv_states[name]["locked"] else "lock"
             ip = tv_states[name]['config'].get('ip')
+            action = "unlock" if tv_states[name]["locked"] else "lock"
             try:
                 requests.post(f"http://{ip}:8080/{action}", timeout=2)
                 tv_states[name]["locked"] = not tv_states[name]["locked"]
             except:
-                logger.warning(f"TV {name} reageert niet.")
+                logger.warning(f"Kon geen verbinding maken met {name} op {ip}")
     return RedirectResponse(url="./", status_code=303)
 
 @app.post("/add_time/{name}")
@@ -88,4 +96,5 @@ async def add_time(name: str, minutes: int = Form(...)):
     return RedirectResponse(url="./", status_code=303)
 
 if __name__ == "__main__":
+    logger.info("KidsLock Manager start op...")
     uvicorn.run(app, host="0.0.0.0", port=8000)
