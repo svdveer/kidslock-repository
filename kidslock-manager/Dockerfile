@@ -1,20 +1,18 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.11-alpine3.19
 FROM $BUILD_FROM
 
-# Install requirements for add-on
-RUN \
-  apk add --no-cache \
-    python3 \
-    py3-pip
-
-# Copy data for add-on
-COPY requirements.txt /tmp/
-RUN pip install --requirement /tmp/requirements.txt
+# Systeem-afhankelijkheden (iputils voor ping, sqlite voor database)
+RUN apk add --no-cache iputils bash curl sqlite
 
 WORKDIR /app
+
+# Installeer requirements
+COPY requirements.txt /tmp/
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+
+# Kopieer de rest (inclusief je templates map!)
 COPY . /app
 
-# Make run.sh executable
 RUN chmod a+x /app/run.sh
 
 CMD [ "/app/run.sh" ]
