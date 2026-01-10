@@ -1,5 +1,4 @@
 import logging, threading, time, json, os, requests, subprocess
-from datetime import datetime
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -9,25 +8,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 OPTIONS_PATH = "/data/options.json"
 
+# Veilig inladen van de schemaloze config
 def load_options():
     try:
         if os.path.exists(OPTIONS_PATH):
             with open(OPTIONS_PATH, "r") as f:
                 return json.load(f)
-    except: pass
+    except Exception as e:
+        logger.error(f"Configuratie kon niet worden geladen: {e}")
     return {"tvs": []}
 
 options = load_options()
 data_lock = threading.RLock()
 tv_states = {}
 
+# Initialiseer TV's op basis van de YAML input
 for tv in options.get("tvs", []):
-    name = tv.get("name")
-    if name and tv.get("ip"):
-        limit = tv.get("daily_limit") if tv.get("daily_limit") is not None else 120
+    name = tv.get("name", "Onbekend")
+    ip = tv.get("ip")
+    if ip:
+        limit = tv.get("daily_limit", 120)
         tv_states[name] = {
-            "config": tv, "online": False, "locked": False,
-            "remaining_minutes": float(limit), "manual_override": False
+            "config": tv,
+            "online": False,
+            "locked": False,
+            "remaining_minutes": float(limit)
         }
 
 def is_online(ip):
@@ -41,7 +46,7 @@ def monitor():
         with data_lock:
             for name, state in tv_states.items():
                 ip = state["config"].get("ip")
-                if ip: state["online"] = is_online(ip)
+                state["online"] = is_online(ip)
         time.sleep(30)
 
 threading.Thread(target=monitor, daemon=True).start()
@@ -55,11 +60,10 @@ async def home(request: Request):
     with data_lock:
         for name, s in tv_states.items():
             tvs_display.append({
-                "name": name, "online": s["online"], "locked": s["locked"],
-                "remaining": int(s["remaining_minutes"]),
-                "limit": s["config"].get("daily_limit") or 120,
-                "bedtime": s["config"].get("bedtime") or "21:00",
-                "no_limit": s["config"].get("no_limit_mode", False)
+                "name": name,
+                "online": s["online"],
+                "locked": s["locked"],
+                "remaining": int(s["remaining_minutes"])
             })
     return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs_display})
 
@@ -70,9 +74,10 @@ async def toggle(name: str):
             action = "unlock" if tv_states[name]["locked"] else "lock"
             ip = tv_states[name]['config'].get('ip')
             try:
-                requests.post(f"http://{ip}:8080/{action}", timeout=1.5)
+                requests.post(f"http://{ip}:8080/{action}", timeout=2)
                 tv_states[name]["locked"] = not tv_states[name]["locked"]
-            except: logger.error(f"TV {name} niet bereikbaar.")
+            except:
+                logger.warning(f"TV {name} reageert niet.")
     return RedirectResponse(url="./", status_code=303)
 
 @app.post("/add_time/{name}")

@@ -4,9 +4,9 @@
     <title>KidsLock Manager</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: sans-serif; background-color: #f0f2f5; padding: 20px; }
-        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .btn { padding: 10px; border-radius: 6px; border: none; cursor: pointer; color: white; font-weight: bold; }
+        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; }
+        .card { background: white; border-radius: 10px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; color: white; font-weight: bold; margin-right: 5px; }
         .btn-blue { background: #2196F3; }
         .btn-red { background: #F44336; }
         .btn-green { background: #4CAF50; }
@@ -16,15 +16,15 @@
     <h1>🔐 KidsLock Manager</h1>
     {% for tv in tvs %}
     <div class="card">
-        <h2>{{ tv.name }} {% if tv.online %} (Online) {% else %} (Offline) {% endif %}</h2>
-        <p>Resterend: {{ tv.remaining }} min</p>
+        <h2>{{ tv.name }} {% if tv.online %}(Online){% else %}(Offline){% endif %}</h2>
+        <p>Tijd over: <strong>{{ tv.remaining }} min</strong></p>
         <form action="add_time/{{ tv.name }}" method="post" style="display:inline;">
             <input type="hidden" name="minutes" value="15">
             <button type="submit" class="btn btn-blue">+15 Min</button>
         </form>
         <form action="toggle_lock/{{ tv.name }}" method="post" style="display:inline;">
             <button type="submit" class="btn {% if tv.locked %}btn-green{% else %}btn-red{% endif %}">
-                {% if tv.locked %}ONTGRENDEL{% else %}VERGRENDEL{% endif %}
+                {% if tv.locked %}Ontgrendel{% else %}Vergrendel{% endif %}
             </button>
         </form>
     </div>
