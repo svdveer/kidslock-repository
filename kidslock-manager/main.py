@@ -9,37 +9,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 OPTIONS_PATH = "/data/options.json"
 
-# Veilig laden van opties met privacy-vriendelijke fallbacks
 def load_options():
     try:
         if os.path.exists(OPTIONS_PATH):
             with open(OPTIONS_PATH, "r") as f:
                 return json.load(f)
-    except Exception as e:
-        logger.error(f"Fout bij laden config: {e}")
+    except: pass
     return {"tvs": []}
 
 options = load_options()
 data_lock = threading.RLock()
 tv_states = {}
 
-# Initialiseer alleen TV's die een naam en IP hebben
 for tv in options.get("tvs", []):
     name = tv.get("name")
-    ip = tv.get("ip")
-    
-    if name and ip:
-        # Fallback naar 120 als de gebruiker niets invult in de UI
+    if name and tv.get("ip"):
         limit = tv.get("daily_limit") if tv.get("daily_limit") is not None else 120
         tv_states[name] = {
-            "config": tv,
-            "online": False,
-            "locked": False,
-            "remaining_minutes": float(limit),
-            "manual_override": False
+            "config": tv, "online": False, "locked": False,
+            "remaining_minutes": float(limit), "manual_override": False
         }
-    else:
-        logger.warning(f"TV configuratie onvolledig: {tv}")
 
 def is_online(ip):
     try:
@@ -66,9 +55,7 @@ async def home(request: Request):
     with data_lock:
         for name, s in tv_states.items():
             tvs_display.append({
-                "name": name,
-                "online": s["online"],
-                "locked": s["locked"],
+                "name": name, "online": s["online"], "locked": s["locked"],
                 "remaining": int(s["remaining_minutes"]),
                 "limit": s["config"].get("daily_limit") or 120,
                 "bedtime": s["config"].get("bedtime") or "21:00",
@@ -82,12 +69,10 @@ async def toggle(name: str):
         if name in tv_states:
             action = "unlock" if tv_states[name]["locked"] else "lock"
             ip = tv_states[name]['config'].get('ip')
-            if ip:
-                try:
-                    requests.post(f"http://{ip}:8080/{action}", timeout=1.5)
-                    tv_states[name]["locked"] = not tv_states[name]["locked"]
-                except Exception as e:
-                    logger.error(f"Communicatiefout met {name}: {e}")
+            try:
+                requests.post(f"http://{ip}:8080/{action}", timeout=1.5)
+                tv_states[name]["locked"] = not tv_states[name]["locked"]
+            except: logger.error(f"TV {name} niet bereikbaar.")
     return RedirectResponse(url="./", status_code=303)
 
 @app.post("/add_time/{name}")

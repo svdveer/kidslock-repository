@@ -1,63 +1,33 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html>
 <head>
     <title>KidsLock Manager</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="refresh" content="45">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; padding: 20px; color: #333; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #e0e0e0; }
-        h1 { text-align: center; color: #03a9f4; margin-bottom: 30px; }
-        h2 { margin-top: 0; display: flex; align-items: center; font-size: 1.4em; }
-        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 10px; }
-        .online { background-color: #4caf50; box-shadow: 0 0 8px #4caf50; }
-        .offline { background-color: #f44336; }
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; background: #f9f9f9; padding: 10px; border-radius: 8px; }
-        .info-item { font-size: 0.9em; }
-        .info-label { font-weight: bold; color: #666; display: block; }
-        .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 20px; }
-        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; color: white; font-weight: bold; transition: opacity 0.2s; font-size: 0.9em; }
-        .btn-blue { background-color: #2196F3; }
-        .btn-green { background-color: #4CAF50; }
-        .btn-red { background-color: #F44336; }
-        .no-limit-badge { background: #e1f5fe; color: #0288d1; padding: 2px 6px; border-radius: 10px; font-size: 0.7em; margin-left: 10px; }
+        body { font-family: sans-serif; background-color: #f0f2f5; padding: 20px; }
+        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .btn { padding: 10px; border-radius: 6px; border: none; cursor: pointer; color: white; font-weight: bold; }
+        .btn-blue { background: #2196F3; }
+        .btn-red { background: #F44336; }
+        .btn-green { background: #4CAF50; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔐 KidsLock Manager</h1>
-        {% for tv in tvs %}
-        <div class="card">
-            <h2>
-                <span class="status-dot {% if tv.online %}online{% else %}offline{% endif %}"></span>
-                {{ tv.name }}
-                {% if tv.no_limit %}<span class="no-limit-badge">ONBEPERKT</span>{% endif %}
-            </h2>
-            <div class="info-grid">
-                <div class="info-item"><span class="info-label">Resterend</span><strong>{{ tv.remaining }}</strong> min</div>
-                <div class="info-item"><span class="info-label">Daglimiet</span>{{ tv.limit }} min</div>
-                <div class="info-item"><span class="info-label">Bedtijd</span>{{ tv.bedtime }}</div>
-                <div class="info-item"><span class="info-label">Status</span>{% if tv.locked %}🔒 Vergrendeld{% else %}🔓 Open{% endif %}</div>
-            </div>
-            <div class="controls">
-                <form action="add_time/{{ tv.name }}" method="post">
-                    <input type="hidden" name="minutes" value="15">
-                    <button type="submit" class="btn btn-blue">+15 Min</button>
-                </form>
-                <form action="add_time/{{ tv.name }}" method="post">
-                    <input type="hidden" name="minutes" value="30">
-                    <button type="submit" class="btn btn-blue">+30 Min</button>
-                </form>
-                <div style="flex-grow: 1;"></div>
-                <form action="toggle_lock/{{ tv.name }}" method="post">
-                    <button type="submit" class="btn {% if tv.locked %}btn-green{% else %}btn-red{% endif %}">
-                        {% if tv.locked %}ONTGRENDEL{% else %}VERGRENDEL{% endif %}
-                    </button>
-                </form>
-            </div>
-        </div>
-        {% endfor %}
+    <h1>🔐 KidsLock Manager</h1>
+    {% for tv in tvs %}
+    <div class="card">
+        <h2>{{ tv.name }} {% if tv.online %} (Online) {% else %} (Offline) {% endif %}</h2>
+        <p>Resterend: {{ tv.remaining }} min</p>
+        <form action="add_time/{{ tv.name }}" method="post" style="display:inline;">
+            <input type="hidden" name="minutes" value="15">
+            <button type="submit" class="btn btn-blue">+15 Min</button>
+        </form>
+        <form action="toggle_lock/{{ tv.name }}" method="post" style="display:inline;">
+            <button type="submit" class="btn {% if tv.locked %}btn-green{% else %}btn-red{% endif %}">
+                {% if tv.locked %}ONTGRENDEL{% else %}VERGRENDEL{% endif %}
+            </button>
+        </form>
     </div>
+    {% endfor %}
 </body>
 </html>
