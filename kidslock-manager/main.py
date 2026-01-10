@@ -37,7 +37,6 @@ data_lock = threading.RLock()
 
 # --- MQTT ---
 mqtt_client = mqtt.Client()
-
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         with data_lock:
@@ -69,7 +68,6 @@ try:
     mqtt_client.loop_start()
 except: pass
 
-# --- Monitor ---
 def monitor():
     last_tick = time.time()
     while True:
