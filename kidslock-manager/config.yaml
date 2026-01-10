@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "1.4.7"
+version: "1.4.8"
 slug: "kidslock-manager"
-description: "Non-S6 Alpine Build"
+description: "Stabiele v1.4.8 - Robuuste Monitor Loop"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
