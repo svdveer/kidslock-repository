@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 import uvicorn
 import paho.mqtt.client as mqtt
 
-# --- Initialisatie ---
+# --- Init & Logging ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 OPTIONS_PATH = "/data/options.json"
@@ -27,16 +27,12 @@ def init_db():
 
 init_db()
 
-# Haal opties op met foutafhandeling
 try:
     if os.path.exists(OPTIONS_PATH):
         with open(OPTIONS_PATH, "r") as f:
             options = json.load(f)
-    else:
-        options = {"tvs": [], "mqtt": {}}
-except Exception as e:
-    logger.error(f"Fout bij laden opties: {e}")
-    options = {"tvs": [], "mqtt": {}}
+    else: options = {"tvs": [], "mqtt": {}}
+except: options = {"tvs": [], "mqtt": {}}
 
 # --- Veilig Pingen ---
 def is_online(ip):
@@ -46,15 +42,13 @@ def is_online(ip):
         return res.returncode == 0
     except: return False
 
-# --- Global State met Fallbacks ---
+# --- Global State ---
 data_lock = threading.RLock()
 tv_states = {}
 first_run_done = False
 
 for tv in options.get("tvs", []):
-    # Als een waarde None is (leeg in HA), gebruik dan de standaard
     limit = tv.get("daily_limit") if tv.get("daily_limit") is not None else 120
-    
     tv_states[tv["name"]] = {
         "config": tv,
         "online": False,
@@ -62,31 +56,6 @@ for tv in options.get("tvs", []):
         "remaining_minutes": float(limit),
         "manual_override": False
     }
-
-# --- MQTT Setup ---
-mqtt_conf = options.get("mqtt", {})
-mqtt_client = mqtt.Client()
-
-def on_connect(client, userdata, flags, rc):
-    if rc == 0:
-        logger.info("✅ MQTT Verbonden")
-        for name in tv_states:
-            slug = name.lower().replace(" ", "_")
-            client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
-                "name": f"{name} Lock", "command_topic": f"kidslock/{slug}/set",
-                "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_switch",
-                "device": {"identifiers": [f"kidslock_{slug}"], "name": name}
-            }), retain=True)
-            client.subscribe(f"kidslock/{slug}/set")
-
-mqtt_client.on_connect = on_connect
-if mqtt_conf.get("username"):
-    mqtt_client.username_pw_set(mqtt_conf["username"], mqtt_conf.get("password"))
-
-try:
-    mqtt_client.connect(mqtt_conf.get("host", "core-mosquitto"), mqtt_conf.get("port", 1883))
-    mqtt_client.loop_start()
-except Exception as e: logger.error(f"MQTT Fout: {e}")
 
 # --- Monitor ---
 def monitor():
@@ -101,18 +70,20 @@ def monitor():
             for name, state in tv_states.items():
                 state["online"] = is_online(state["config"]["ip"])
                 
+                # ONBEPERKT LOGICA: Slaat alle blokkades over
                 if state["config"].get("no_limit_mode", False):
+                    if state["locked"] and not state["manual_override"]:
+                        try: requests.post(f"http://{state['config']['ip']}:8080/unlock", timeout=5)
+                        except: pass
+                        state["locked"] = False
                     continue
 
                 if state["online"] and not state["locked"]:
                     state["remaining_minutes"] = max(0, state["remaining_minutes"] - delta)
                 
-                # Fallback voor bedtijd
                 bt_str = state["config"].get("bedtime") or "21:00"
-                try:
-                    bt = datetime.strptime(bt_str, "%H:%M").time()
-                except:
-                    bt = datetime.strptime("21:00", "%H:%M").time()
+                try: bt = datetime.strptime(bt_str, "%H:%M").time()
+                except: bt = datetime.strptime("21:00", "%H:%M").time()
                 
                 is_bt = (now.time() > bt or now.time() < datetime.strptime("04:00", "%H:%M").time())
                 
@@ -120,30 +91,38 @@ def monitor():
                     if (state["remaining_minutes"] <= 0 or is_bt) and not state["locked"]:
                         try: requests.post(f"http://{state['config']['ip']}:8080/lock", timeout=5)
                         except: pass
+                        state["locked"] = True
         first_run_done = True
         time.sleep(30)
 
 threading.Thread(target=monitor, daemon=True).start()
 
-# --- Web Interface ---
+# --- Web UI ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    tvs_list = []
+    tvs_display = []
     with data_lock:
         for name, s in tv_states.items():
-            tvs_list.append({
+            # Status bericht voor de HTML
+            status_text = "Actief op netwerk" if s["online"] else "TV staat uit"
+            is_unlimited = s["config"].get("no_limit_mode", False)
+            if is_unlimited:
+                status_text = "ONBEPERKT MODUS ACTIEF"
+            
+            tvs_display.append({
                 "name": name,
                 "online": s["online"],
-                "remaining": int(s["remaining_minutes"]),
+                "remaining": "∞" if is_unlimited else int(s["remaining_minutes"]),
                 "limit": s["config"].get("daily_limit") or 120,
                 "bedtime": s["config"].get("bedtime") or "21:00",
-                "locked": s["locked"]
+                "locked": s["locked"],
+                "status_msg": status_text,
+                "no_limit": is_unlimited
             })
-    # Stuur de lijst expliciet naar de template
-    return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs_list})
+    return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs_display})
 
 @app.post("/toggle_lock/{name}")
 async def toggle(name: str):
