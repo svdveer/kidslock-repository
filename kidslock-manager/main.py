@@ -10,7 +10,6 @@ logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
 OPTIONS_PATH = "/data/options.json"
 
-# --- Database & Config ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute('''CREATE TABLE IF NOT EXISTS tv_config 
@@ -21,6 +20,7 @@ def init_db():
 
 init_db()
 
+# Opties laden voor MQTT
 try:
     with open(OPTIONS_PATH, 'r') as f:
         options = json.load(f)
@@ -30,100 +30,71 @@ except:
 data_lock = threading.RLock()
 tv_states = {}
 
-# --- MQTT Logica ---
+# --- MQTT ---
 mqtt_conf = options.get("mqtt", {})
-client = mqtt.Client()
+mqtt_client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        logger.info("MQTT verbonden met broker")
+        logger.info("MQTT verbonden")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
-                discovery_topic = f"homeassistant/switch/kidslock_{slug}/config"
-                payload = {
+                client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
                     "name": f"{name} Lock",
                     "command_topic": f"kidslock/{slug}/set",
                     "state_topic": f"kidslock/{slug}/state",
-                    "unique_id": f"kidslock_{slug}",
-                    "device": {"identifiers": ["kidslock_manager"], "name": "KidsLock Manager"}
-                }
-                client.publish(discovery_topic, json.dumps(payload), retain=True)
+                    "unique_id": f"kidslock_{slug}"
+                }), retain=True)
                 client.subscribe(f"kidslock/{slug}/set")
 
-def on_message(client, userdata, msg):
-    topic = msg.topic
-    payload = msg.payload.decode().upper()
-    with data_lock:
-        for name, s in tv_states.items():
-            slug = name.lower().replace(" ", "_")
-            if topic == f"kidslock/{slug}/set":
-                action = "lock" if payload == "ON" else "unlock"
-                send_action(s["ip"], action)
-                s["locked"] = (payload == "ON")
-                client.publish(f"kidslock/{slug}/state", payload, retain=True)
-
-client.on_connect = on_connect
-client.on_message = on_message
+mqtt_client.on_connect = on_connect
 
 if mqtt_conf.get("host"):
     if mqtt_conf.get("username"):
-        client.username_pw_set(mqtt_conf["username"], mqtt_conf.get("password"))
+        mqtt_client.username_pw_set(mqtt_conf["username"], mqtt_conf.get("password"))
     try:
-        client.connect_async(mqtt_conf["host"], mqtt_conf.get("port", 1883))
-        client.loop_start()
-    except:
-        logger.error("MQTT Connectie mislukt")
+        mqtt_client.connect_async(mqtt_conf["host"], mqtt_conf.get("port", 1883))
+        mqtt_client.loop_start()
+    except: logger.error("MQTT verbinding mislukt")
 
-# --- TV Functies ---
-def send_action(ip, action):
-    try:
-        requests.post(f"http://{ip}:8080/{action}", timeout=1.5)
-        return True
-    except: return False
-
-def load_tvs_from_db():
+# --- Logica ---
+def load_tvs():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT name, ip, daily_limit, bedtime, no_limit FROM tv_config")
     rows = cursor.fetchall()
     conn.close()
     with data_lock:
-        current_names = [row[0] for row in rows]
-        for name in list(tv_states.keys()):
-            if name not in current_names: del tv_states[name]
+        current = [r[0] for r in rows]
+        for n in list(tv_states.keys()):
+            if n not in current: del tv_states[n]
         for name, ip, limit, bedtime, no_limit in rows:
             if name not in tv_states:
-                tv_states[name] = {"ip": ip, "limit": limit, "bedtime": bedtime, "no_limit": no_limit,
-                                   "online": False, "locked": False, "remaining": float(limit)}
+                tv_states[name] = {"ip": ip, "limit": limit, "online": False, "locked": False, "remaining": float(limit), "no_limit": no_limit}
             else:
-                tv_states[name].update({"ip": ip, "limit": limit, "bedtime": bedtime, "no_limit": no_limit})
+                tv_states[name].update({"ip": ip, "limit": limit, "no_limit": no_limit})
 
 def monitor():
     last_tick = time.time()
     while True:
-        load_tvs_from_db()
+        load_tvs()
         delta = (time.time() - last_tick) / 60.0
         last_tick = time.time()
         with data_lock:
             for name, s in tv_states.items():
                 res = subprocess.run(['ping', '-c', '1', '-W', '1', s["ip"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 s["online"] = (res.returncode == 0)
-                
                 if s.get("no_limit") == 1:
                     if s["locked"]:
-                        if send_action(s["ip"], "unlock"): s["locked"] = False
+                        requests.post(f"http://{s['ip']}:8080/unlock", timeout=1.5)
+                        s["locked"] = False
                     continue
-                
                 if s["online"] and not s["locked"]:
                     s["remaining"] = max(0, s["remaining"] - delta)
-                
                 if s["remaining"] <= 0 and not s["locked"]:
-                    if send_action(s["ip"], "lock"): s["locked"] = True
-                
-                # Update MQTT status
-                slug = name.lower().replace(" ", "_")
-                client.publish(f"kidslock/{slug}/state", "ON" if s["locked"] else "OFF", retain=True)
+                    requests.post(f"http://{s['ip']}:8080/lock", timeout=1.5)
+                    s["locked"] = True
         time.sleep(30)
 
 threading.Thread(target=monitor, daemon=True).start()
@@ -131,7 +102,7 @@ threading.Thread(target=monitor, daemon=True).start()
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# --- Web Routes ---
+# --- Routes ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     tvs_list = []
@@ -166,7 +137,7 @@ async def toggle(name: str):
     with data_lock:
         if name in tv_states:
             action = "unlock" if tv_states[name]["locked"] else "lock"
-            send_action(tv_states[name]["ip"], action)
+            requests.post(f"http://{tv_states[name]['ip']}:8080/{action}", timeout=1.5)
             tv_states[name]["locked"] = not tv_states[name]["locked"]
     return {"status": "ok"}
 
