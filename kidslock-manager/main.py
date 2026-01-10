@@ -16,18 +16,17 @@ import paho.mqtt.client as mqtt
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 
-# --- Bestands- en Padconfiguratie ---
+# --- Configuration & Paths ---
 OPTIONS_PATH = "/data/options.json"
 DB_PATH = "/data/kidslock.db"
 
-# Opties laden uit de Add-on Configuratie (ingesteld door de gebruiker)
 if os.path.exists(OPTIONS_PATH):
     with open(OPTIONS_PATH, "r") as f:
         options = json.load(f)
 else:
     options = {"tvs": [], "mqtt": {}}
 
-# --- Database Initialisatie ---
+# --- Database ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -40,7 +39,6 @@ def init_db():
 
 init_db()
 
-# --- Helper functies voor Staatbeheer ---
 def save_state(tv_name, minutes):
     try:
         conn = sqlite3.connect(DB_PATH, timeout=10)
@@ -62,13 +60,14 @@ def load_state(tv_name, daily_limit):
         conn.close()
         if row and row[1] == datetime.now().strftime("%Y-%m-%d"):
             return float(row[0])
-    except Exception:
-        pass
+    except Exception: pass
     return float(daily_limit)
 
-# --- Global State Initialisatie ---
+# --- Global State ---
 data_lock = threading.RLock()
 tv_states = {}
+first_run_done = False # Voorkomt locks bij startup
+
 for tv in options.get("tvs", []):
     limit = tv.get("daily_limit", 120)
     saved_time = load_state(tv["name"], limit)
@@ -80,65 +79,43 @@ for tv in options.get("tvs", []):
         "manual_override": False
     }
 
-# --- MQTT Configuratie & Callbacks ---
+# --- MQTT Setup ---
 mqtt_conf = options.get("mqtt", {})
 mqtt_client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        logger.info("✅ Verbonden met MQTT Broker!")
+        logger.info("✅ MQTT Verbonden!")
         for tv_name in tv_states:
             publish_discovery(tv_name)
             update_mqtt_state(tv_name)
             slug = tv_name.lower().replace(" ", "_")
             client.subscribe(f"kidslock/{slug}/set")
     else:
-        logger.error(f"❌ MQTT Verbinding mislukt (Code {rc}). Check je config!")
-
-def on_message(client, userdata, msg):
-    payload = msg.payload.decode()
-    with data_lock:
-        for tv_name, state in tv_states.items():
-            slug = tv_name.lower().replace(" ", "_")
-            if msg.topic == f"kidslock/{slug}/set":
-                action = "lock" if payload == "ON" else "unlock"
-                control_tv(tv_name, action, "Handmatig via MQTT")
-                state["manual_override"] = True
+        logger.error(f"❌ MQTT Fout {rc}")
 
 mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
 
-# MQTT Inloggegevens (uit config.yaml options)
-m_user = mqtt_conf.get("username")
-m_pass = mqtt_conf.get("password")
-if m_user and m_pass:
-    mqtt_client.username_pw_set(m_user, m_pass)
+if mqtt_conf.get("username"):
+    mqtt_client.username_pw_set(mqtt_conf["username"], mqtt_conf.get("password"))
 
 try:
     mqtt_client.connect(mqtt_conf.get("host", "core-mosquitto"), mqtt_conf.get("port", 1883), 60)
     mqtt_client.loop_start()
 except Exception as e:
-    logger.error(f"MQTT Verbindingsfout: {e}")
+    logger.error(f"MQTT Fout: {e}")
 
 def publish_discovery(tv_name):
     slug = tv_name.lower().replace(" ", "_")
     device = {"identifiers": [f"kidslock_{slug}"], "name": tv_name, "manufacturer": "KidsLock"}
-    
-    # Discovery Switch (Vergrendeling)
     mqtt_client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
-        "name": f"{tv_name} Lock",
-        "command_topic": f"kidslock/{slug}/set",
-        "state_topic": f"kidslock/{slug}/state",
-        "unique_id": f"kidslock_{slug}_switch",
+        "name": f"{tv_name} Lock", "command_topic": f"kidslock/{slug}/set",
+        "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_switch",
         "device": device, "icon": "mdi:lock"
     }), retain=True)
-
-    # Discovery Sensor (Tijd over)
     mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}_time/config", json.dumps({
-        "name": f"{tv_name} Tijd over",
-        "state_topic": f"kidslock/{slug}/time",
-        "unit_of_measurement": "min",
-        "unique_id": f"kidslock_{slug}_time",
+        "name": f"{tv_name} Tijd over", "state_topic": f"kidslock/{slug}/time",
+        "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_time",
         "device": device, "icon": "mdi:timer-sand"
     }), retain=True)
 
@@ -148,35 +125,36 @@ def update_mqtt_state(tv_name):
     mqtt_client.publish(f"kidslock/{slug}/state", "ON" if state["locked"] else "OFF", retain=True)
     mqtt_client.publish(f"kidslock/{slug}/time", int(state["remaining_minutes"]), retain=True)
 
-# --- TV Besturing ---
+# --- Control ---
 def control_tv(tv_name, action, reason):
     state = tv_states[tv_name]
     ip = state["config"]["ip"]
-    if (action == "lock" and state["locked"]) or (action == "unlock" and not state["locked"]):
-        return
+    if (action == "lock" and state["locked"]) or (action == "unlock" and not state["locked"]): return
 
     def req():
         try:
             requests.post(f"http://{ip}:8080/{action}", timeout=5)
             logger.info(f"📺 {tv_name} -> {action} ({reason})")
-        except:
-            logger.error(f"⚠️ Kon {tv_name} niet bereiken op {ip}")
+        except: logger.error(f"⚠️ {tv_name} onbereikbaar")
 
     threading.Thread(target=req, daemon=True).start()
     state["locked"] = (action == "lock")
     update_mqtt_state(tv_name)
 
-# --- Monitor Loop ---
+# --- Monitor ---
 def monitor_loop():
+    global first_run_done
     last_day = datetime.now().day
     last_tick = time.time()
+    
+    # Wacht 10 sec zodat Supervisor/MQTT stabiel zijn
+    time.sleep(10)
     
     while True:
         delta = (time.time() - last_tick) / 60.0
         last_tick = time.time()
         now = datetime.now()
         
-        # Dagelijkse Reset om middernacht
         if now.day != last_day:
             with data_lock:
                 for n, s in tv_states.items():
@@ -190,33 +168,29 @@ def monitor_loop():
                 is_online = (os.system(f"ping -c 1 -W 1 {state['config']['ip']} > /dev/null 2>&1") == 0)
                 state["online"] = is_online
                 
-                # Tijd aftrek als TV aan is
                 if is_online and not state["locked"] and not state["config"].get("no_limit_mode", False):
                     state["remaining_minutes"] = max(0, state["remaining_minutes"] - delta)
                     save_state(name, state["remaining_minutes"])
 
-                # Veilige bedtijd parser
                 b_str = str(state["config"].get("bedtime", "20:00"))
-                try:
-                    bt = datetime.strptime(b_str if ":" in b_str else "20:00", "%H:%M").time()
-                except:
-                    bt = datetime.strptime("20:00", "%H:%M").time()
+                try: bt = datetime.strptime(b_str if ":" in b_str else "20:00", "%H:%M").time()
+                except: bt = datetime.strptime("20:00", "%H:%M").time()
 
                 is_bt = (now.time() > bt or now.time() < datetime.strptime("04:00", "%H:%M").time())
                 time_up = state["remaining_minutes"] <= 0
                 
-                if not state["manual_override"]:
+                if not state["manual_override"] and first_run_done:
                     if (time_up or is_bt) and not state["locked"]:
-                        control_tv(name, "lock", "Bedtijd" if is_bt else "Tijd op")
+                        control_tv(name, "lock", "Tijd op/Bedtijd")
                     elif not time_up and not is_bt and state["locked"]:
-                        control_tv(name, "unlock", "Nieuwe dag")
-                
-                update_mqtt_state(name)
+                        control_tv(name, "unlock", "Vrijgave")
+        
+        first_run_done = True
         time.sleep(30)
 
 threading.Thread(target=monitor_loop, daemon=True).start()
 
-# --- Web Interface (FastAPI) ---
+# --- FastAPI ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
@@ -241,16 +215,16 @@ async def add_time(tv_name: str, minutes: int = Form(...)):
             tv_states[tv_name]["remaining_minutes"] += minutes
             tv_states[tv_name]["manual_override"] = False
             if tv_states[tv_name]["locked"]: control_tv(tv_name, "unlock", "Extra tijd")
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="./", status_code=303)
 
 @app.post("/toggle_lock/{tv_name}")
 async def toggle_lock(tv_name: str):
     with data_lock:
         if tv_name in tv_states:
             action = "unlock" if tv_states[tv_name]["locked"] else "lock"
-            control_tv(tv_name, action, "Web Dashboard")
+            control_tv(tv_name, action, "Dashboard")
             tv_states[tv_name]["manual_override"] = True
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="./", status_code=303)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
