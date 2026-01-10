@@ -66,7 +66,7 @@ def load_state(tv_name, daily_limit):
 # --- Global State ---
 data_lock = threading.RLock()
 tv_states = {}
-first_run_done = False # Voorkomt locks bij startup
+first_run_done = False 
 
 for tv in options.get("tvs", []):
     limit = tv.get("daily_limit", 120)
@@ -155,6 +155,7 @@ def monitor_loop():
         last_tick = time.time()
         now = datetime.now()
         
+        # Dagelijkse Reset
         if now.day != last_day:
             with data_lock:
                 for n, s in tv_states.items():
@@ -168,7 +169,16 @@ def monitor_loop():
                 is_online = (os.system(f"ping -c 1 -W 1 {state['config']['ip']} > /dev/null 2>&1") == 0)
                 state["online"] = is_online
                 
-                if is_online and not state["locked"] and not state["config"].get("no_limit_mode", False):
+                # --- NO LIMIT MODE CHECK ---
+                if state["config"].get("no_limit_mode", False):
+                    # Als onbeperkt aan staat, forceren we een unlock (tenzij handmatig overschreven)
+                    if state["locked"] and not state["manual_override"]:
+                        control_tv(name, "unlock", "Onbeperkte modus actief")
+                    update_mqtt_state(name)
+                    continue # Sla tijd-aftrek en bedtijd over voor deze TV
+
+                # --- NORMALE LOGICA ---
+                if is_online and not state["locked"]:
                     state["remaining_minutes"] = max(0, state["remaining_minutes"] - delta)
                     save_state(name, state["remaining_minutes"])
 
