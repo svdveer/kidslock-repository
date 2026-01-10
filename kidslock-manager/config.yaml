@@ -1,5 +1,5 @@
 name: "KidsLock Manager"
-version: "1.1.9.005"
+version: "1.1.9.007"
 slug: "kidslock-manager"
 description: "Beheer schermtijd voor Android TV via Home Assistant"
 url: "https://github.com/svdveer/kidslock-repository"
@@ -24,14 +24,8 @@ schema:
     port: int?
     username: str?
     password: str?
-# Deze sectie zorgt voor de standaardwaarden bij ELKE nieuwe TV
 options:
-  tvs:
-    - name: "Nieuwe TV"
-      ip: "192.168.1.x"
-      daily_limit: 120
-      bedtime: "21:00"
-      no_limit_mode: false
+  tvs: []
   mqtt:
     host: "core-mosquitto"
     port: 1883

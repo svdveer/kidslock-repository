@@ -9,28 +9,37 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 OPTIONS_PATH = "/data/options.json"
 
-# Veilig opties laden
-try:
-    if os.path.exists(OPTIONS_PATH):
-        with open(OPTIONS_PATH, "r") as f:
-            options = json.load(f)
-    else: options = {"tvs": []}
-except: options = {"tvs": []}
+# Veilig laden van opties met privacy-vriendelijke fallbacks
+def load_options():
+    try:
+        if os.path.exists(OPTIONS_PATH):
+            with open(OPTIONS_PATH, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Fout bij laden config: {e}")
+    return {"tvs": []}
 
+options = load_options()
 data_lock = threading.RLock()
 tv_states = {}
 
-# Gebruik fallbacks als velden leeg zijn in de config
+# Initialiseer alleen TV's die een naam en IP hebben
 for tv in options.get("tvs", []):
-    name = tv.get("name", "Onbekende TV")
-    limit = tv.get("daily_limit") if tv.get("daily_limit") is not None else 120
-    tv_states[name] = {
-        "config": tv, 
-        "online": False, 
-        "locked": False,
-        "remaining_minutes": float(limit),
-        "manual_override": False
-    }
+    name = tv.get("name")
+    ip = tv.get("ip")
+    
+    if name and ip:
+        # Fallback naar 120 als de gebruiker niets invult in de UI
+        limit = tv.get("daily_limit") if tv.get("daily_limit") is not None else 120
+        tv_states[name] = {
+            "config": tv,
+            "online": False,
+            "locked": False,
+            "remaining_minutes": float(limit),
+            "manual_override": False
+        }
+    else:
+        logger.warning(f"TV configuratie onvolledig: {tv}")
 
 def is_online(ip):
     try:
@@ -42,8 +51,8 @@ def monitor():
     while True:
         with data_lock:
             for name, state in tv_states.items():
-                if "ip" in state["config"]:
-                    state["online"] = is_online(state["config"]["ip"])
+                ip = state["config"].get("ip")
+                if ip: state["online"] = is_online(ip)
         time.sleep(30)
 
 threading.Thread(target=monitor, daemon=True).start()
@@ -57,8 +66,8 @@ async def home(request: Request):
     with data_lock:
         for name, s in tv_states.items():
             tvs_display.append({
-                "name": name, 
-                "online": s["online"], 
+                "name": name,
+                "online": s["online"],
                 "locked": s["locked"],
                 "remaining": int(s["remaining_minutes"]),
                 "limit": s["config"].get("daily_limit") or 120,
@@ -67,7 +76,6 @@ async def home(request: Request):
             })
     return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs_display})
 
-# De fix voor de 404: Relatieve redirect
 @app.post("/toggle_lock/{name}")
 async def toggle(name: str):
     with data_lock:
@@ -78,8 +86,8 @@ async def toggle(name: str):
                 try:
                     requests.post(f"http://{ip}:8080/{action}", timeout=1.5)
                     tv_states[name]["locked"] = not tv_states[name]["locked"]
-                    tv_states[name]["manual_override"] = True
-                except: pass
+                except Exception as e:
+                    logger.error(f"Communicatiefout met {name}: {e}")
     return RedirectResponse(url="./", status_code=303)
 
 @app.post("/add_time/{name}")
