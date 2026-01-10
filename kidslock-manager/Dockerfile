@@ -1,16 +1,23 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.11-alpine3.19
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
 FROM $BUILD_FROM
 
-# Systeem-afhankelijkheden (iputils voor ping, sqlite voor database)
-RUN apk add --no-cache iputils bash curl sqlite
+# Systeem-afhankelijkheden installeren:
+# We voegen python3 en py3-pip toe zodat we pip3 kunnen gebruiken
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    iputils \
+    bash \
+    curl \
+    sqlite
 
 WORKDIR /app
 
 # Installeer requirements
 COPY requirements.txt /tmp/
-RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt --break-system-packages
 
-# Kopieer de rest (inclusief je templates map!)
+# Kopieer de rest
 COPY . /app
 
 RUN chmod a+x /app/run.sh
