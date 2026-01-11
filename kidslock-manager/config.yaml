@@ -1,5 +1,5 @@
 name: "KidsLock Manager"
-version: "1.6.4"
+version: "1.6.5"
 slug: "kidslock-manager"
 description: "Beheer schermtijd voor Android TV's met MQTT Discovery, Kijktijd Tracking en een visueel Dashboard."
 url: "https://github.com/svdveer/kidslock-repository"
