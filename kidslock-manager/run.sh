@@ -1,6 +1,6 @@
 #!/usr/bin/with-s6-overlay-shell bash
 
-echo "--- 🔐 KidsLock Manager v1.6.0 start op ---"
+echo "--- 🔐 KidsLock Manager v1.6.2 start op ---"
 
-# Start de Python applicatie
+#!/usr/bin/with-s6-overlay-shell bash
 python3 /app/main.py

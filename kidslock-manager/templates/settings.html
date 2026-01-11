@@ -4,35 +4,49 @@
     <meta charset="UTF-8">
     <title>Instellingen</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>/* ... styling ... */</style>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f7f9; padding: 20px; }
+        .container { max-width: 500px; margin: 0 auto; }
+        .card { background: white; border-radius: 15px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        input { width:100%; padding:10px; margin:10px 0; border:1px solid #ddd; border-radius:8px; box-sizing:border-box; }
+        .btn-green { background:#34a853; color:white; border:none; width:100%; padding:12px; border-radius:10px; font-weight:bold; cursor:pointer; }
+    </style>
 </head>
 <body>
     <div class="container">
-        <div style="text-align:center; margin-bottom:20px;"><a href="./" style="color:#1a73e8; text-decoration:none">← DASHBOARD</a></div>
-        
+        <p style="text-align:center"><a href="./" style="color:#1a73e8; text-decoration:none;">← DASHBOARD</a></p>
         <div class="card">
             <h3>TV Toevoegen</h3>
             <form id="addForm">
-                <input type="text" name="name" placeholder="Naam" required><br><br>
-                <input type="text" name="ip" placeholder="IP Adres" required><br><br>
-                <input type="number" name="limit" value="120"><br><br>
-                <button type="submit" style="width:100%; padding:10px; background:#34a853; color:white; border:none; border-radius:8px;">Opslaan</button>
+                <input type="text" name="name" placeholder="Naam (bijv. Amy)" required>
+                <input type="text" name="ip" placeholder="IP Adres" required>
+                <input type="number" name="limit" placeholder="Limiet (min)" value="120">
+                <input type="time" name="bedtime" value="20:00">
+                <select name="no_limit" style="width:100%; padding:10px; border-radius:8px; margin-bottom:10px;">
+                    <option value="0">Limiet actief</option>
+                    <option value="1">Onbeperkt</option>
+                </select>
+                <button type="submit" class="btn-green">Opslaan</button>
             </form>
         </div>
+        <div class="card" style="margin-top:20px;">
+            <h3>Beheer</h3>
+            {% for tv in tvs %}
+            <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #eee;">
+                <span>{{ tv[0] }}</span>
+                <button onclick="deleteTv('{{ tv[0] }}')" style="color:red; background:none; border:none; cursor:pointer;">Verwijder</button>
+            </div>
+            {% endfor %}
+        </div>
     </div>
-
     <script>
         document.getElementById('addForm').onsubmit = async (e) => {
             e.preventDefault();
-            const formData = new URLSearchParams(new FormData(e.target));
-            // RELATIEVE API URL
-            await fetch('api/add_tv', { method: 'POST', body: formData });
+            await fetch('api/add_tv', { method: 'POST', body: new URLSearchParams(new FormData(e.target)) });
             window.location.reload();
         };
-
         async function deleteTv(name) {
-            if (confirm('Verwijderen?')) {
-                // RELATIEVE API URL
+            if(confirm('Verwijderen?')) {
                 await fetch(`api/delete_tv/${name}`, { method: 'POST' });
                 window.location.reload();
             }

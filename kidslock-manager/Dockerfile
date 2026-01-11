@@ -1,8 +1,8 @@
-FROM python:3.11-alpine
-RUN apk add --no-cache iputils sqlite bash
+ARG BUILD_FROM
+FROM $BUILD_FROM
+RUN apk add --no-cache python3 py3-pip
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-RUN chmod a+x run.sh
-CMD ["python", "main.py"]
+RUN pip3 install --no-cache-dir -r requirements.txt
+RUN chmod a+x /app/run.sh
+CMD [ "/app/run.sh" ]

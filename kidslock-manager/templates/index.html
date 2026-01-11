@@ -5,47 +5,48 @@
     <title>KidsLock</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        /* (Houd je styling uit v1.6.0 aan) */
-        body { font-family: -apple-system, sans-serif; background: #f4f7f9; padding: 20px; color: #333; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f4f7f9; padding: 20px; color: #333; }
         .container { max-width: 500px; margin: 0 auto; }
-        .card { background: white; border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-top: 5px solid #ccc; }
+        .card { background: white; border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-top: 5px solid #34a853; }
+        .card.locked { border-top-color: #ea4335; }
+        .progress-container { background: #eee; height: 12px; border-radius: 10px; overflow: hidden; margin: 15px 0; }
         .progress-bar { height: 100%; background: linear-gradient(90deg, #34a853, #fbbc05, #ea4335); transition: width 0.5s; }
-        /* ... etc ... */
+        .stats { display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .btn { padding: 12px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        .btn-blue { background: #e8f0fe; color: #1a73e8; }
+        .btn-dark { background: #1a1f36; color: white; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔐 KidsLock</h1>
-        <p style="text-align:center"><a href="settings" style="color:#1a73e8; text-decoration:none">⚙️ SYSTEEM INSTELLINGEN</a></p>
-
+        <h1 style="text-align:center;">🔐 KidsLock</h1>
+        <p style="text-align:center;"><a href="settings" style="color:#1a73e8; text-decoration:none;">⚙️ INSTELLINGEN</a></p>
         {% for tv in tvs %}
         {% set usage = (tv.elapsed / tv.limit * 100) if tv.limit > 0 else 0 %}
-        <div class="card">
-            <h2>{{ tv.name }}</h2>
-            <div style="background:#eee; height:10px; border-radius:10px; overflow:hidden; margin:10px 0;">
-                <div class="progress-bar" style="width: {{ usage if usage < 100 else 100 }}%"></div>
+        <div class="card {% if tv.locked %}locked{% endif %}">
+            <div style="display:flex; justify-content:space-between">
+                <h2 style="margin:0">{{ tv.name }}</h2>
+                <small>● {{ 'Online' if tv.online else 'Offline' }}</small>
             </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+            <div class="progress-container"><div class="progress-bar" style="width: {{ usage if usage < 100 else 100 }}%"></div></div>
+            <div class="stats">
                 <span>Gebruikt: <b>{{ tv.elapsed|int }}m</b></span>
                 <span>Over: <b>{{ tv.remaining|int }}m</b></span>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <button onclick="apiCall('api/add_time/{{ tv.name }}', 'minutes=15')" style="padding:10px; border-radius:8px; border:none; background:#e8f0fe; color:#1a73e8; font-weight:bold;">+15m</button>
-                <button onclick="apiCall('api/toggle_lock/{{ tv.name }}')" style="padding:10px; border-radius:8px; border:none; background:#1a1f36; color:white; font-weight:bold;">
-                    {{ '🔓 Open' if tv.locked else '🔒 Slot' }}
-                </button>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <button class="btn btn-blue" onclick="apiCall('api/add_time/{{ tv.name }}', 'minutes=15')">+15m</button>
+                <button class="btn btn-dark" onclick="apiCall('api/toggle_lock/{{ tv.name }}')">{{ '🔓 Open' if tv.locked else '🔒 Slot' }}</button>
             </div>
         </div>
         {% endfor %}
     </div>
-
     <script>
-        async function apiCall(url, body = null) {
-            // Verwijder eventuele leidende slash als die er per ongeluk staat
-            const cleanUrl = url.startsWith('/') ? url.substring(1) : url;
-            const opt = { method: 'POST' };
-            if (body) { opt.headers = {'Content-Type': 'application/x-www-form-urlencoded'}; opt.body = body; }
-            await fetch(cleanUrl, opt);
+        async function apiCall(url, body) {
+            await fetch(url.startsWith('/') ? url.substring(1) : url, { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'}, 
+                body: body 
+            });
             window.location.reload();
         }
     </script>
