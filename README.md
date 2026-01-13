@@ -11,6 +11,7 @@ De add-on kan de TV alleen vergrendelen als de bijbehorende client-app op de TV 
 1. **Downloaden**: Download het nieuwste **`kidslock-client.apk`** bestand onder de sectie "Assets" bij de laatste [KidsLock Releases](https://github.com/svdveer/kidslock-repository/releases).
 2. **Installeren**: Gebruik een USB-stick of een app als *"Send Files to TV"* om de APK op je Android TV te installeren.
 3. **Permissies**:
+* Verleen de permissie **Toegankelijkheid (Accessibility Service)** zet Kidslock op "Aan"
 * Verleen de permissie **"Weergeven over andere apps"** (Display over other apps). Dit is nodig om het slot-scherm bovenop apps als YouTube of Netflix te tonen.
 * Zorg dat de TV een **statisch IP-adres** heeft in je netwerk.
 
