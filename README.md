@@ -1,63 +1,47 @@
-# 🔐 KidsLock Manager
+# 🔐 KidsLock Manager v1.7.0
 
-**KidsLock Manager** is een Home Assistant Add-on gecombineerd met een Android TV applicatie om schermtijd effectief te beheren. Voorkom eindeloze discussies door limieten en bedtijden automatisch af te dwingen via je smart home.
+KidsLock Manager is een geavanceerde Home Assistant add-on waarmee je de schermtijd van Android TV's (of andere apparaten die reageren op HTTP-slotcommando's) beheert. Met een volledig weekschema, bedtijd-handhaving en MQTT-integratie heb je volledige controle over het mediagebruik in huis.
 
-## 🚀 Functies
+## 🚀 Nieuwe Functies in v1.7.0
+- **📅 Volledig Weekschema**: Stel per dag van de week (Ma-Zo) een unieke tijdslimiet en bedtijd in.
+- **🌙 Harde Bedtijd**: De TV gaat direct op slot zodra de bedtijd is bereikt, ongeacht de resterende tijd.
+- **🔄 Auto-Reset**: Kijktijden worden elke nacht om 00:00 automatisch teruggezet naar nul.
+- **🛡️ Offline Protection**: Lock/Unlock commando's worden direct uitgevoerd zodra een TV online komt.
+- **📊 Live Dashboard**: Real-time overzicht van verbruik, status en resterende tijd.
 
-* **Tijdslimieten**: Stel per TV een maximaal aantal minuten per dag in.
-* **Bedtijd-slot**: De TV vergrendelt automatisch na een ingesteld tijdstip.
-* **Onbeperkt Modus (∞)**: Schakel met één klik alle restricties uit voor filmavonden of weekenden.
-* **No-Refresh Web UI**: Een moderne interface die perfect werkt binnen de Home Assistant zijbalk en op dashboards.
-* **MQTT Discovery**: TV's verschijnen automatisch als apparaten in Home Assistant (Switches & Sensoren voor resterende tijd).
-* **Live Monitoring**: Zie direct of de TV online is en hoeveel tijd er nog over is.
+## 🛠️ Installatie
 
-## 📦 Installatie
+1. Voeg deze repository toe aan je Home Assistant Add-on Store.
+2. Installeer **KidsLock Manager**.
+3. Configureer je MQTT-gegevens in de **Options** tab van de add-on.
+4. Start de add-on en open de **Web UI**.
+5. Voeg je TV's toe en stel het gewenste schema in per dag.
 
-### 1. Android TV App
-1.  Download de nieuwste APK van de [Releases pagina](https://github.com/svdveer/kidslock-repository/releases).
-2.  Installeer de APK op je TV (bijv. via de 'Downloader' app of een USB-stick).
-3.  Verleen de gevraagde rechten in de Android instellingen:
-    * **Toon boven andere apps** (Overlay permission).
-    * **Gebruikstoegang** (Usage access).
-4.  **Beheerder-pincode**: De standaard pincode om de TV handmatig te ontgrendelen is `1234` (instelbaar in de app).
-5.  Noteer het **IP-adres** dat in de app wordt weergegeven.
+## 📡 MQTT Integratie
 
-### 2. Home Assistant Add-on
-1.  Ga naar **Instellingen** > **Add-ons** > **Add-on winkel**.
-2.  Klik op de drie puntjes rechtsboven > **Repositories**.
-3.  Voeg deze URL toe: `https://github.com/svdveer/kidslock-repository`.
-4.  Zoek naar **KidsLock Manager** en klik op **Installeren**.
+De add-on maakt automatisch entiteiten aan in Home Assistant via MQTT Discovery:
+- **Switch**: Handmatig vergrendelen/ontgrendelen van de TV.
+- **Sensor**: Geeft de resterende tijd weer (in minuten of de status "Onbeperkt"/"Bedtijd").
 
-## ⚙️ Configuratie
+### MQTT Topics
+- Status: `kidslock/[slug]/state` (`ON` of `OFF`)
+- Resterende tijd: `kidslock/[slug]/remaining`
+- Commando's: `kidslock/[slug]/set`
 
-### MQTT Instellingen
-Stel je MQTT-gegevens in bij de tab **Configuratie** van de add-on. Dit is nodig voor de communicatie met Home Assistant.
+## 🖥️ API Interface
 
-```yaml
-mqtt:
-  host: "core-mosquitto"
-  port: 1883
-  username: "je-gebruiker"
-  password: "je-wachtwoord"
+De add-on draait een FastAPI server op poort `8000` (bereikbaar via Ingress):
+- `GET /`: Dashboard
+- `GET /settings`: Weekschema beheer
+- `POST /api/add_time/[name]`: Voeg extra tijd toe (+15m)
+- `POST /api/reset/[name]`: Reset de kijktijd voor vandaag handmatig
 
-```
+## 📝 Belangrijke opmerkingen
+- **Android TV App**: Deze add-on werkt het beste in combinatie met een kleine luister-app op de TV die reageert op `/lock` en `/unlock` HTTP-verzoeken op poort `8080`.
+- **Netwerk**: Zorg dat je TV's een statisch IP-adres hebben in je router.
 
-### TV's beheren
+## 📄 Changelog
+Zie [CHANGELOG.md](CHANGELOG.md) voor de volledige geschiedenis van updates en bugfixes.
 
-Zodra de add-on is gestart, klik je op **Web-interface openen**. Hier kun je:
-
-* TV's toevoegen op basis van hun IP-adres.
-* Dagelijkse tijdslimieten instellen (in minuten).
-* Bedtijden configureren.
-* Handmatig extra tijd toevoegen of de TV direct vergrendelen.
-
-## 🛠️ Home Assistant Integratie
-
-Omdat de add-on gebruikmaakt van MQTT Discovery, verschijnen de TV's automatisch als apparaten in Home Assistant. Je kunt ze vinden onder **Instellingen > Apparaten & Diensten > MQTT**.
-
-* **Switch**: Gebruik de switch om de TV handmatig op slot te zetten of te ontgrendelen.
-* **Sensor**: Volg de resterende tijd in minuten op je eigen dashboard.
-
-## 📄 Licentie
-
-MIT Licentie - Vrij voor persoonlijk gebruik.
+---
+*Ontwikkeld voor en door Home Assistant enthousiastelingen.*
