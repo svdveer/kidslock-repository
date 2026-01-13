@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "1.7.0.1"
+version: "1.7.0.2"
 slug: "kidslock-manager"
-description: "v1.7.0.1 Hotfix: Geavanceerd weekschema met verbeterde typesafety en anti-spook logica."
+description: "v1.7.0.2 Hotfix: Fix voor terugspringende MQTT switches en typesafety dashboard."
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64

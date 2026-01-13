@@ -39,13 +39,29 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT v1.7.0.1 Verbonden")
+        logger.info("MQTT v1.7.0.2 Verbonden")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
                 device = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
-                client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({"name": "Vergrendeling", "command_topic": f"kidslock/{slug}/set", "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_switch", "device": device}), retain=True)
-                client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", json.dumps({"name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", "unique_id": f"kidslock_{slug}_rem", "device": device, "icon": "mdi:timer-sand"}), retain=True)
+                # Switch Discovery met payload definities
+                client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
+                    "name": "Vergrendeling", 
+                    "command_topic": f"kidslock/{slug}/set", 
+                    "state_topic": f"kidslock/{slug}/state", 
+                    "unique_id": f"kidslock_{slug}_switch", 
+                    "device": device,
+                    "payload_on": "ON",
+                    "payload_off": "OFF",
+                    "optimistic": False
+                }), retain=True)
+                client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", json.dumps({
+                    "name": "Tijd Resterend", 
+                    "state_topic": f"kidslock/{slug}/remaining", 
+                    "unique_id": f"kidslock_{slug}_rem", 
+                    "device": device, 
+                    "icon": "mdi:timer-sand"
+                }), retain=True)
                 client.subscribe(f"kidslock/{slug}/#")
 
 def on_message(client, userdata, msg):
@@ -57,8 +73,12 @@ def on_message(client, userdata, msg):
         for name, s in tv_states.items():
             if name.lower().replace(" ", "_") == slug:
                 if cmd == "set":
-                    s["manual_lock"] = (payload == "ON")
-                    action = "lock" if s["manual_lock"] else "unlock"
+                    is_on = (payload == "ON")
+                    s["manual_lock"] = is_on
+                    # DIRECTE FEEDBACK naar HA om terugspringen te voorkomen
+                    client.publish(f"kidslock/{slug}/state", payload, retain=True)
+                    
+                    action = "lock" if is_on else "unlock"
                     threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{action}", timeout=1)).start()
 
 mqtt_client.on_connect = on_connect
@@ -99,7 +119,6 @@ def monitor():
                         tv_states[name] = {"ip": ip, "online": False, "locked": False, "manual_lock": False}
                     
                     s = tv_states[name]
-                    # DATA TYPE FIX: Forceer types naar float/int
                     s.update({
                         "limit": float(day_cfg['limit']),
                         "bedtime": day_cfg['bedtime'],
@@ -165,7 +184,12 @@ async def api_handler(action: str, name: str, minutes: int = Form(None)):
             if action == "add_time": tv_states[name]["elapsed"] -= minutes
             elif action == "reset":
                 with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
-            elif action == "toggle_lock": tv_states[name]["manual_lock"] = not tv_states[name]["manual_lock"]
+            elif action == "toggle_lock": 
+                is_on = not tv_states[name]["manual_lock"]
+                tv_states[name]["manual_lock"] = is_on
+                # Ook feedback voor WebUI acties
+                slug = name.lower().replace(" ", "_")
+                mqtt_client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
     return JSONResponse({"status": "ok"})
 
 @app.post("/api/delete_tv/{name}")
