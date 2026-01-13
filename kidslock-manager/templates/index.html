@@ -22,10 +22,14 @@
 </head>
 <body>
     <div class="container">
-        <h1 style="text-align:center;">🔐 KidsLock v1.7.0</h1>
+        <h1 style="text-align:center;">🔐 KidsLock v1.7.0.1</h1>
         <p style="text-align:center;"><a href="settings" style="color:#1a73e8; text-decoration:none; font-weight:bold;">⚙️ SCHEMA & INSTELLINGEN</a></p>
         {% for tv in tvs %}
-        {% set usage = (tv.elapsed / tv.limit * 100) if tv.limit|int > 0 else 0 %}
+        {# VEILIGE BEREKENING #}
+        {% set e = tv.elapsed|float if tv.elapsed else 0.0 %}
+        {% set l = tv.limit|float if tv.limit and tv.limit|float > 0 else 1.0 %}
+        {% set usage = (e / l * 100) %}
+        
         <div class="card {{ 'locked' if tv.locked else '' }} {{ 'unlimited' if tv.no_limit else '' }}">
             <div style="display:flex; justify-content:space-between">
                 <h2 style="margin:0">{{ tv.name }}</h2>
@@ -35,7 +39,7 @@
                 <div class="progress-bar {{ 'blue' if tv.no_limit else '' }}" style="width: {{ 100 if tv.no_limit else (usage if usage < 100 else 100) }}%"></div>
             </div>
             <div class="stats">
-                <span>Vandaag: <b>{{ tv.elapsed|int }}m</b></span>
+                <span>Vandaag: <b>{{ e|int }}m</b></span>
                 <span>Over: <b>{{ '∞' if tv.no_limit else (tv.remaining|int|string + 'm') }}</b></span>
             </div>
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">

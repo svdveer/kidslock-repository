@@ -25,7 +25,6 @@ def get_default_schedule():
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    # Migratie naar nieuwe tabelstructuur
     conn.execute('''CREATE TABLE IF NOT EXISTS tv_configs 
                     (name TEXT PRIMARY KEY, ip TEXT, no_limit INTEGER DEFAULT 0, 
                      elapsed REAL DEFAULT 0, last_reset TEXT, schedule TEXT)''')
@@ -40,7 +39,7 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT v1.7.0 Verbonden")
+        logger.info("MQTT v1.7.0.1 Verbonden")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
@@ -91,39 +90,43 @@ def monitor():
                     sched = json.loads(sched_json) if sched_json else get_default_schedule()
                     day_cfg = sched.get(today_name, {"limit": 120, "bedtime": "20:00"})
                     
-                    # Dagelijkse Reset
                     if last_reset != today_date:
                         elapsed = 0.0
                         with sqlite3.connect(DB_PATH) as c:
                             c.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ? WHERE name = ?", (today_date, name))
                     
                     if name not in tv_states:
-                        tv_states[name] = {"ip": ip, "online": False, "locked": False, "manual_lock": False, "limit": day_cfg['limit']}
+                        tv_states[name] = {"ip": ip, "online": False, "locked": False, "manual_lock": False}
                     
                     s = tv_states[name]
-                    s.update({"limit": day_cfg['limit'], "bedtime": day_cfg['bedtime'], "no_limit": no_limit, "elapsed": elapsed})
+                    # DATA TYPE FIX: Forceer types naar float/int
+                    s.update({
+                        "limit": float(day_cfg['limit']),
+                        "bedtime": day_cfg['bedtime'],
+                        "no_limit": int(no_limit),
+                        "elapsed": float(elapsed)
+                    })
                     
                     res = subprocess.run(['ping', '-c', '1', '-W', '1', ip], stdout=subprocess.DEVNULL)
                     s["online"] = (res.returncode == 0)
-
-                    s["remaining"] = max(0, float(s['limit']) - s['elapsed'])
+                    s["remaining"] = max(0, s['limit'] - s['elapsed'])
                     is_past_bedtime = current_time >= s['bedtime']
                     
-                    should_lock = s["manual_lock"] or (not no_limit and (s["remaining"] <= 0 or is_past_bedtime))
+                    should_lock = s["manual_lock"] or (not s["no_limit"] and (s["remaining"] <= 0 or is_past_bedtime))
                     
                     if should_lock != s["locked"] or (s["online"] and should_lock):
                         action = "lock" if should_lock else "unlock"
                         try: requests.post(f"http://{ip}:8080/{action}", timeout=1); s["locked"] = should_lock
                         except: pass
 
-                    if s["online"] and not s["locked"] and not no_limit:
+                    if s["online"] and not s["locked"] and not s["no_limit"]:
                         s["elapsed"] += delta
                         with sqlite3.connect(DB_PATH) as c:
                             c.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (s["elapsed"], name))
                     
                     slug = name.lower().replace(" ", "_")
                     mqtt_client.publish(f"kidslock/{slug}/state", "ON" if s["locked"] else "OFF")
-                    status_val = "Onbeperkt" if no_limit else (f"BEDTIJD" if is_past_bedtime else f"{int(s['remaining'])} min")
+                    status_val = "Onbeperkt" if s["no_limit"] else (f"BEDTIJD" if is_past_bedtime else f"{int(s['remaining'])} min")
                     mqtt_client.publish(f"kidslock/{slug}/remaining", status_val)
         except Exception as e: logger.error(f"Monitor error: {e}")
         time.sleep(30)
