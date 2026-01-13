@@ -2,161 +2,105 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <title>KidsLock Instellingen</title>
+    <title>KidsLock Schema</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: -apple-system, system-ui, sans-serif; background: #f4f7f9; padding: 20px; color: #333; line-height: 1.5; }
-        .container { max-width: 500px; margin: 0 auto; }
-        
-        .card { 
-            background: white; border-radius: 15px; padding: 20px; margin-bottom: 20px; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
-        }
-        
-        h1 { text-align: center; font-weight: 800; color: #1a1f36; }
-        h3 { margin-top: 0; color: #1a73e8; font-size: 1.1em; text-transform: uppercase; letter-spacing: 1px; }
-
-        label { display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px; color: #666; text-transform: uppercase; }
-        
-        input[type="text"], input[type="number"], input[type="time"], select { 
-            width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 10px; 
-            box-sizing: border-box; font-size: 16px; margin-bottom: 15px; background: #fcfcfc;
-        }
-
-        .btn { 
-            width: 100%; padding: 14px; border: none; border-radius: 12px; 
-            cursor: pointer; font-weight: bold; font-size: 14px; transition: transform 0.1s;
-        }
-        .btn:active { transform: scale(0.98); }
-        .btn-green { background: #34a853; color: white; }
-        
-        .tv-list-item { 
-            display: flex; justify-content: space-between; align-items: center; 
-            padding: 15px 0; border-bottom: 1px solid #eee; 
-        }
-        .tv-list-item:last-child { border-bottom: none; }
-        
-        .back-nav { text-align: center; margin-bottom: 20px; }
-        .back-nav a { color: #1a73e8; text-decoration: none; font-weight: 600; font-size: 0.9em; }
-        
-        .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #eee; vertical-align: middle; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f4f7f9; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: white; border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .day-grid { display: grid; grid-template-columns: 100px 1fr 1fr; gap: 10px; align-items: center; margin-bottom: 5px; padding: 8px; border-bottom: 1px solid #eee; }
+        label { font-weight: bold; font-size: 13px; }
+        input, select { padding: 8px; border-radius: 8px; border: 1px solid #ddd; }
+        .btn-green { background: #34a853; color: white; border: none; padding: 15px; width: 100%; border-radius: 12px; font-weight: bold; cursor: pointer; }
+        .back-nav { margin-bottom: 20px; text-align: center; }
+        .back-nav a { color: #1a73e8; text-decoration: none; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="back-nav"><a href="./">← TERUG NAAR DASHBOARD</a></div>
-        <h1>⚙️ Instellingen</h1>
-
+        <div class="back-nav"><a href="./">← DASHBOARD</a></div>
+        <h1>📅 Weekschema</h1>
+        
         <div class="card">
-            <h3 id="form-title">TV Toevoegen</h3>
-            <form id="addForm">
-                <div class="form-group">
-                    <label>Naam Kind / Kamer</label>
-                    <input type="text" id="f-name" name="name" placeholder="bijv. Amy" required>
-                </div>
+            <form id="saveForm">
+                <label>Naam Kind</label>
+                <input type="text" name="name" id="f-name" style="width:100%; margin-bottom:15px;" required>
                 
-                <div class="form-group">
-                    <label>IP-Adres TV</label>
-                    <input type="text" id="f-ip" name="ip" placeholder="192.168.x.x" required>
-                </div>
-                
-                <div style="display: flex; gap: 10px;">
-                    <div style="flex: 1;">
-                        <label>Daglimiet (min)</label>
-                        <input type="number" id="f-limit" name="limit" value="120" required>
+                <label>IP Adres TV</label>
+                <input type="text" name="ip" id="f-ip" style="width:100%; margin-bottom:15px;" required>
+
+                <label>Restrictie</label>
+                <select name="no_limit" id="f-no_limit" style="width:100%; margin-bottom:20px;">
+                    <option value="0">Gebruik Weekschema</option>
+                    <option value="1">Altijd Onbeperkt</option>
+                </select>
+
+                <div style="background: #f9f9f9; padding: 10px; border-radius: 10px; margin-bottom: 20px;">
+                    <div class="day-grid" style="border-bottom: 2px solid #ddd;"><small>DAG</small><small>LIMIET (min)</small><small>BEDTIJD</small></div>
+                    {% for day in ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"] %}
+                    <div class="day-grid">
+                        <label>{{ day }}</label>
+                        <input type="number" class="limit-in" data-day="{{ day }}" value="120">
+                        <input type="time" class="bed-in" data-day="{{ day }}" value="20:00">
                     </div>
-                    <div style="flex: 1;">
-                        <label>Bedtijd</label>
-                        <input type="time" id="f-bedtime" name="bedtime" value="20:00">
-                    </div>
+                    {% endfor %}
                 </div>
 
-                <div class="form-group">
-                    <label>Restrictie Status</label>
-                    <select id="f-no_limit" name="no_limit">
-                        <option value="0">Limiet Actief (Standaard)</option>
-                        <option value="1">Onbeperkt (Geen Slot)</option>
-                    </select>
-                </div>
-                
-                <button type="submit" class="btn btn-green" id="submit-btn">Opslaan</button>
+                <button type="submit" class="btn-green">SCHEMA OPSLAAN</button>
             </form>
         </div>
 
         <div class="card">
-            <h3>Beheer TV's</h3>
+            <h3>Huidige Apparaten</h3>
             {% for tv in tvs %}
-            <div class="tv-list-item">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;">
+                <span><b>{{ tv.name }}</b> ({{ tv.ip }})</span>
                 <div>
-                    <span style="font-weight: bold;">{{ tv[0] }}</span> 
-                    {% if tv[4] == 1 %}<span class="badge">∞ ONBEPERKT</span>{% endif %}<br>
-                    <small style="color:#888;">{{ tv[1] }} | {{ tv[2] }}m limiet</small>
-                </div>
-                <div>
-                    <button onclick="fillForm('{{ tv[0] }}', '{{ tv[1] }}', '{{ tv[2] }}', '{{ tv[3] }}', '{{ tv[4] }}')" 
-                            style="color:#1a73e8; background:none; border:none; cursor:pointer; font-weight:600; font-size:13px; margin-right:10px;">
-                        BEWERK
-                    </button>
-                    <button onclick="deleteTv('{{ tv[0] }}')" 
-                            style="color:#ea4335; background:none; border:none; cursor:pointer; font-size:13px;">
-                        WISSEN
-                    </button>
+                    <button onclick='editTv({{ tv|tojson }})' style="color:#1a73e8; background:none; border:none; cursor:pointer;">BEWERK</button>
+                    <button onclick="deleteTv('{{ tv.name }}')" style="color:#ea4335; background:none; border:none; cursor:pointer; margin-left:10px;">WISSEN</button>
                 </div>
             </div>
             {% endfor %}
-            {% if not tvs %}
-            <p style="color:#999; text-align:center; font-size:14px;">Nog geen apparaten toegevoegd.</p>
-            {% endif %}
         </div>
     </div>
 
     <script>
-        // Functie om bestaande data in het formulier te laden
-        function fillForm(name, ip, limit, bedtime, no_limit) {
-            document.getElementById('f-name').value = name;
-            document.getElementById('f-ip').value = ip;
-            document.getElementById('f-limit').value = limit;
-            document.getElementById('f-bedtime').value = bedtime;
-            document.getElementById('f-no_limit').value = no_limit;
-            
-            document.getElementById('form-title').innerText = "TV Bewerken: " + name;
-            document.getElementById('submit-btn').innerText = "Bijwerken";
-            
-            // Scroll zachtjes terug naar boven
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+        function editTv(tv) {
+            document.getElementById('f-name').value = tv.name;
+            document.getElementById('f-ip').value = tv.ip;
+            document.getElementById('f-no_limit').value = tv.no_limit;
+            for (let day in tv.schedule) {
+                document.querySelector(`.limit-in[data-day="${day}"]`).value = tv.schedule[day].limit;
+                document.querySelector(`.bed-in[data-day="${day}"]`).value = tv.schedule[day].bedtime;
+            }
+            window.scrollTo({top: 0, behavior: 'smooth'});
         }
 
-        // Formulier verzenden
-        document.getElementById('addForm').onsubmit = async (e) => {
+        document.getElementById('saveForm').onsubmit = async (e) => {
             e.preventDefault();
-            const formData = new URLSearchParams(new FormData(e.target));
-            
-            try {
-                const response = await fetch('api/add_tv', { 
-                    method: 'POST', 
-                    body: formData 
-                });
-                if (response.ok) {
-                    window.location.reload();
-                }
-            } catch (err) {
-                alert("Fout bij opslaan: " + err);
-            }
+            const sched = {};
+            document.querySelectorAll('.limit-in').forEach(el => {
+                const day = el.dataset.day;
+                sched[day] = {
+                    limit: el.value,
+                    bedtime: document.querySelector(`.bed-in[data-day="${day}"]`).value
+                };
+            });
+
+            const formData = new URLSearchParams();
+            formData.append('name', document.getElementById('f-name').value);
+            formData.append('ip', document.getElementById('f-ip').value);
+            formData.append('no_limit', document.getElementById('f-no_limit').value);
+            formData.append('schedule', JSON.stringify(sched));
+
+            await fetch('api/save_tv', { method: 'POST', body: formData });
+            window.location.reload();
         };
 
-        // TV Verwijderen
         async function deleteTv(name) {
-            if (confirm(`Weet je zeker dat je ${name} wilt verwijderen?`)) {
-                try {
-                    const response = await fetch(`api/delete_tv/${name}`, { 
-                        method: 'POST' 
-                    });
-                    if (response.ok) {
-                        window.location.reload();
-                    }
-                } catch (err) {
-                    alert("Fout bij verwijderen.");
-                }
+            if(confirm('Verwijderen?')) {
+                await fetch(`api/delete_tv/${name}`, { method: 'POST' });
+                window.location.reload();
             }
         }
     </script>

@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "1.6.5"
+version: "1.7.0"
 slug: "kidslock-manager"
-description: "Beheer schermtijd voor Android TV's met MQTT Discovery, Kijktijd Tracking en een visueel Dashboard."
+description: "Geavanceerd kijktijdbeheer met weekschema, bedtijd-handhaving en anti-spook logica."
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64

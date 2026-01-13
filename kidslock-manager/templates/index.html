@@ -2,51 +2,53 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <title>KidsLock</title>
+    <title>KidsLock Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: -apple-system, system-ui, sans-serif; background: #f4f7f9; padding: 20px; color: #333; }
         .container { max-width: 500px; margin: 0 auto; }
         .card { background: white; border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-top: 5px solid #34a853; }
         .card.locked { border-top-color: #ea4335; }
+        .card.unlimited { border-top-color: #1a73e8; }
         .progress-container { background: #eee; height: 12px; border-radius: 10px; overflow: hidden; margin: 15px 0; }
-        .progress-bar { height: 100%; background: linear-gradient(90deg, #34a853, #fbbc05, #ea4335); transition: width 0.5s; }
+        .progress-bar { height: 100%; transition: width 0.5s; background: linear-gradient(90deg, #34a853, #fbbc05, #ea4335); }
+        .progress-bar.blue { background: #1a73e8; }
         .stats { display: flex; justify-content: space-between; margin-bottom: 15px; }
-        .btn { padding: 12px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        .btn { padding: 12px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 13px; }
         .btn-blue { background: #e8f0fe; color: #1a73e8; }
         .btn-dark { background: #1a1f36; color: white; }
+        .btn-reset { background: #f1f1f1; color: #666; grid-column: span 2; margin-top: 5px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 style="text-align:center;">🔐 KidsLock</h1>
-        <p style="text-align:center;"><a href="settings" style="color:#1a73e8; text-decoration:none;">⚙️ INSTELLINGEN</a></p>
+        <h1 style="text-align:center;">🔐 KidsLock v1.7.0</h1>
+        <p style="text-align:center;"><a href="settings" style="color:#1a73e8; text-decoration:none; font-weight:bold;">⚙️ SCHEMA & INSTELLINGEN</a></p>
         {% for tv in tvs %}
-        {% set usage = (tv.elapsed / tv.limit * 100) if tv.limit > 0 else 0 %}
-        <div class="card {% if tv.locked %}locked{% endif %}">
+        {% set usage = (tv.elapsed / tv.limit * 100) if tv.limit|int > 0 else 0 %}
+        <div class="card {{ 'locked' if tv.locked else '' }} {{ 'unlimited' if tv.no_limit else '' }}">
             <div style="display:flex; justify-content:space-between">
                 <h2 style="margin:0">{{ tv.name }}</h2>
                 <small>● {{ 'Online' if tv.online else 'Offline' }}</small>
             </div>
-            <div class="progress-container"><div class="progress-bar" style="width: {{ usage if usage < 100 else 100 }}%"></div></div>
+            <div class="progress-container">
+                <div class="progress-bar {{ 'blue' if tv.no_limit else '' }}" style="width: {{ 100 if tv.no_limit else (usage if usage < 100 else 100) }}%"></div>
+            </div>
             <div class="stats">
-                <span>Gebruikt: <b>{{ tv.elapsed|int }}m</b></span>
-                <span>Over: <b>{{ tv.remaining|int }}m</b></span>
+                <span>Vandaag: <b>{{ tv.elapsed|int }}m</b></span>
+                <span>Over: <b>{{ '∞' if tv.no_limit else (tv.remaining|int|string + 'm') }}</b></span>
             </div>
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-                <button class="btn btn-blue" onclick="apiCall('api/add_time/{{ tv.name }}', 'minutes=15')">+15m</button>
-                <button class="btn btn-dark" onclick="apiCall('api/toggle_lock/{{ tv.name }}')">{{ '🔓 Open' if tv.locked else '🔒 Slot' }}</button>
+                <button class="btn btn-blue" onclick="apiCall('api/add_time/{{ tv.name }}', 'minutes=15')" {{ 'disabled' if tv.no_limit else '' }}>+15m</button>
+                <button class="btn btn-dark" onclick="apiCall('api/toggle_lock/{{ tv.name }}')">{{ '🔓 Open' if not tv.manual_lock else '🔒 Op Slot' }}</button>
+                <button class="btn btn-reset" onclick="if(confirm('Reset kijktijd voor vandaag?')) apiCall('api/reset/{{ tv.name }}')">🔄 Reset Vandaag</button>
             </div>
         </div>
         {% endfor %}
     </div>
     <script>
         async function apiCall(url, body) {
-            await fetch(url.startsWith('/') ? url.substring(1) : url, { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'}, 
-                body: body 
-            });
+            await fetch(url.startsWith('/') ? url.substring(1) : url, { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body });
             window.location.reload();
         }
     </script>
