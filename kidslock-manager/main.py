@@ -46,6 +46,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
                 device = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
+                # Switch Discovery
                 client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
                     "name": "Vergrendeling", 
                     "command_topic": f"kidslock/{slug}/set", 
@@ -53,6 +54,14 @@ def on_connect(client, userdata, flags, rc, properties=None):
                     "unique_id": f"kidslock_{slug}_switch", 
                     "device": device,
                     "payload_on": "ON", "payload_off": "OFF", "optimistic": False
+                }), retain=True)
+                # Sensor Discovery (Tijd Resterend)
+                client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", json.dumps({
+                    "name": "Tijd Resterend", 
+                    "state_topic": f"kidslock/{slug}/remaining", 
+                    "unique_id": f"kidslock_{slug}_rem", 
+                    "device": device, 
+                    "icon": "mdi:timer-sand"
                 }), retain=True)
                 client.subscribe(f"kidslock/{slug}/set")
 
@@ -98,12 +107,11 @@ def monitor():
             last_tick = time.time()
             
             with data_lock:
-                # Cleanup: Verwijder uit geheugen als niet meer in DB
+                # Cleanup: Verwijder gewiste apparaten
                 db_names = [r[0] for r in rows]
                 for name in list(tv_states.keys()):
                     if name not in db_names:
                         slug = name.lower().replace(" ", "_")
-                        # Home Assistant cleanup (leeg config bericht verwijdert entiteit)
                         mqtt_client.publish(f"homeassistant/switch/kidslock_{slug}/config", "")
                         mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", "")
                         del tv_states[name]
@@ -121,12 +129,7 @@ def monitor():
                         tv_states[name] = {"ip": ip, "online": False, "locked": False, "manual_lock": False}
                     
                     s = tv_states[name]
-                    s.update({
-                        "limit": float(day_cfg['limit']),
-                        "bedtime": day_cfg['bedtime'],
-                        "no_limit": int(no_limit),
-                        "elapsed": float(elapsed)
-                    })
+                    s.update({"limit": float(day_cfg['limit']), "bedtime": day_cfg['bedtime'], "no_limit": int(no_limit), "elapsed": float(elapsed)})
                     
                     res = subprocess.run(['ping', '-c', '1', '-W', '1', ip], stdout=subprocess.DEVNULL)
                     s["online"] = (res.returncode == 0)
@@ -183,7 +186,6 @@ async def save_tv(name: str = Form(...), ip: str = Form(...), no_limit: int = Fo
 
 @app.post("/api/delete_tv/{name}")
 async def delete_tv(name: str):
-    logger.info(f"API Delete opgeroepen voor: {name}")
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM tv_configs WHERE name = ?", (name,))
     return JSONResponse({"status": "ok"})
@@ -201,6 +203,7 @@ async def api_handler(action: str, name: str, minutes: int = Form(None)):
             elif action == "toggle_lock": 
                 is_on = not tv_states[name]["manual_lock"]
                 tv_states[name]["manual_lock"] = is_on
+                # REALTIME MQTT PUSH
                 mqtt_client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
                 threading.Thread(target=lambda: requests.post(f"http://{tv_states[name]['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=1)).start()
     return JSONResponse({"status": "ok"})

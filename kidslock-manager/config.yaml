@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
 version: "1.7.0.6"
 slug: "kidslock-manager"
-description: "v1.7.0.6 - Geoptimaliseerde routing & Cleanup"
+description: "v1.7.0.6 - Realtime MQTT Sync & Cleanup"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
