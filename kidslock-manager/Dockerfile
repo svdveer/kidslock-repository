@@ -1,16 +1,16 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# Installeer Python en benodigde systeempakketten
-RUN apk add --no-update python3 py3-pip
+# Installeer Python en pip
+RUN apk add --no-cache python3 py3-pip
 
-# Installeer de Python bibliotheken die we gebruiken
-RUN pip install --no-cache-dir \
+# Installeer de libraries (met force flag voor HA compatibiliteit)
+RUN pip install --no-cache-dir --break-system-packages \
     flask \
     requests \
     paho-mqtt
 
-# Kopieer je code naar de container
+# Kopieer je code
 COPY . /app
 WORKDIR /app
 
