@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
-# --- INITIALISATIE & LOGGING ---
+# --- INITIALISATIE ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
@@ -36,12 +36,12 @@ init_db()
 tv_states = {}
 data_lock = threading.RLock()
 
-# --- MQTT LOGICA ---
+# --- MQTT CLIENT ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT v1.7.0.4 Verbonden")
+        logger.info("MQTT v1.7.0.6 Verbonden")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
@@ -67,9 +67,7 @@ def on_message(client, userdata, msg):
                 is_on = (payload == "ON")
                 s["manual_lock"] = is_on
                 action = "lock" if is_on else "unlock"
-                # Direct naar de TV sturen
-                threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{action}", timeout=1)).start()
-                # Bevestig status naar HA
+                threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{action}", timeout=2)).start()
                 client.publish(f"kidslock/{slug}/state", payload, retain=True)
 
 mqtt_client.on_connect = on_connect
@@ -100,6 +98,16 @@ def monitor():
             last_tick = time.time()
             
             with data_lock:
+                # Cleanup: Verwijder uit geheugen als niet meer in DB
+                db_names = [r[0] for r in rows]
+                for name in list(tv_states.keys()):
+                    if name not in db_names:
+                        slug = name.lower().replace(" ", "_")
+                        # Home Assistant cleanup (leeg config bericht verwijdert entiteit)
+                        mqtt_client.publish(f"homeassistant/switch/kidslock_{slug}/config", "")
+                        mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", "")
+                        del tv_states[name]
+
                 for name, ip, no_limit, elapsed, last_reset, sched_json in rows:
                     sched = json.loads(sched_json) if sched_json else get_default_schedule()
                     day_cfg = sched.get(today_name, {"limit": 120, "bedtime": "20:00"})
@@ -146,14 +154,12 @@ def monitor():
 
 threading.Thread(target=monitor, daemon=True).start()
 
-# --- WEB SERVER ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     with data_lock:
-        # Hier bouwen we de lijst 'tvs' die jouw index.html exact zo verwacht
         tvs_list = []
         for name, s in tv_states.items():
             tvs_list.append({"name": name, **s})
@@ -169,6 +175,19 @@ async def settings_ui(request: Request):
         processed_tvs.append({"name": r[0], "ip": r[1], "no_limit": r[2], "schedule": json.loads(r[3]) if r[3] else get_default_schedule()})
     return templates.TemplateResponse("settings.html", {"request": request, "tvs": processed_tvs})
 
+@app.post("/api/save_tv")
+async def save_tv(name: str = Form(...), ip: str = Form(...), no_limit: int = Form(...), schedule: str = Form(...)):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, no_limit, schedule) VALUES (?, ?, ?, ?)", (name, ip, no_limit, schedule))
+    return JSONResponse({"status": "ok"})
+
+@app.post("/api/delete_tv/{name}")
+async def delete_tv(name: str):
+    logger.info(f"API Delete opgeroepen voor: {name}")
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM tv_configs WHERE name = ?", (name,))
+    return JSONResponse({"status": "ok"})
+
 @app.post("/api/{action}/{name}")
 async def api_handler(action: str, name: str, minutes: int = Form(None)):
     with data_lock:
@@ -182,21 +201,8 @@ async def api_handler(action: str, name: str, minutes: int = Form(None)):
             elif action == "toggle_lock": 
                 is_on = not tv_states[name]["manual_lock"]
                 tv_states[name]["manual_lock"] = is_on
-                # Direct MQTT bericht sturen voor realtime feedback in HA
                 mqtt_client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
-                # Directe actie naar de TV
                 threading.Thread(target=lambda: requests.post(f"http://{tv_states[name]['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=1)).start()
-    return JSONResponse({"status": "ok"})
-
-@app.post("/api/save_tv")
-async def save_tv(name: str = Form(...), ip: str = Form(...), no_limit: int = Form(...), schedule: str = Form(...)):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, no_limit, schedule) VALUES (?, ?, ?, ?)", (name, ip, no_limit, schedule))
-    return JSONResponse({"status": "ok"})
-
-@app.post("/api/delete_tv/{name}")
-async def delete_tv(name: str):
-    with sqlite3.connect(DB_PATH) as conn: conn.execute("DELETE FROM tv_configs WHERE name = ?", (name,))
     return JSONResponse({"status": "ok"})
 
 if __name__ == "__main__":
