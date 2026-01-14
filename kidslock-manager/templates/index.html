@@ -2,92 +2,59 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KidsLock Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { background-color: #f8f9fa; padding: 20px; }
-        .card { border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .status-online { color: #28a745; font-weight: bold; }
-        .status-offline { color: #dc3545; font-weight: bold; }
-        .timer-display { font-size: 2rem; font-weight: bold; color: #007bff; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f4f7f9; padding: 20px; color: #333; }
+        .container { max-width: 500px; margin: 0 auto; }
+        .card { background: white; border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-top: 5px solid #34a853; }
+        .card.locked { border-top-color: #ea4335; }
+        .card.unlimited { border-top-color: #1a73e8; }
+        .progress-container { background: #eee; height: 12px; border-radius: 10px; overflow: hidden; margin: 15px 0; }
+        .progress-bar { height: 100%; transition: width 0.5s; background: linear-gradient(90deg, #34a853, #fbbc05, #ea4335); }
+        .progress-bar.blue { background: #1a73e8; }
+        .stats { display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .btn { padding: 12px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 13px; }
+        .btn-blue { background: #e8f0fe; color: #1a73e8; }
+        .btn-dark { background: #1a1f36; color: white; }
+        .btn-reset { background: #f1f1f1; color: #666; grid-column: span 2; margin-top: 5px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1>🔐 KidsLock Manager</h1>
-            <a href="/settings" class="btn btn-outline-secondary">Instellingen</a>
-        </div>
-
-        <div class="row">
-            {% for slug, s in devices.items() %}
-            <div class="col-md-6 col-lg-4">
-                <div class="card p-3">
-                    <div class="d-flex justify-content-between">
-                        <h3 class="h5">{{ s.name }}</h3>
-                        <span class="{{ 'status-online' if s.online else 'status-offline' }}">
-                            {{ '● Online' if s.online else '○ Offline' }}
-                        </span>
-                    </div>
-                    <hr>
-                    <div class="text-center mb-3">
-                        <div class="text-muted">Gebruikt vandaag:</div>
-                        <div class="timer-display">{{ s.minutes_used }} min</div>
-                    </div>
-                    
-                    <div class="d-grid gap-2">
-                        <button id="btn-{{ slug }}" 
-                                onclick="toggleLock('{{ slug }}')" 
-                                class="btn {{ 'btn-danger' if s.manual_lock else 'btn-success' }}">
-                            {{ 'Ontgrendelen' if s.manual_lock else 'Vergrendelen' }}
-                        </button>
-                        
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <button onclick="addTime('{{ slug }}', 15)" class="btn btn-outline-primary btn-sm w-100">+15 min</button>
-                            </div>
-                            <div class="col-6">
-                                <button onclick="resetTime('{{ slug }}')" class="btn btn-outline-warning btn-sm w-100">Reset</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <script>
-        function toggleLock(slug) {
-            const btn = document.getElementById(`btn-${slug}`);
-            btn.disabled = true;
-
-            fetch(`/api/toggle_lock/${slug}`, { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        btn.innerText = data.locked ? "Ontgrendelen" : "Vergrendelen";
-                        btn.className = data.locked ? "btn btn-danger" : "btn btn-success";
-                    }
-                })
-                .finally(() => { btn.disabled = false; });
-        }
-
-        function addTime(slug, mins) {
-            fetch(`/api/add_time/${slug}/${mins}`, { method: 'POST' })
-                .then(() => location.reload());
-        }
-
-        function resetTime(slug) {
-            if(confirm("Weet je zeker dat je de tijd voor vandaag wilt resetten?")) {
-                fetch(`/api/reset/${slug}`, { method: 'POST' })
-                    .then(() => location.reload());
-            }
-        }
+        <h1 style="text-align:center;">🔐 KidsLock v1.7.0.1</h1>
+        <p style="text-align:center;"><a href="settings" style="color:#1a73e8; text-decoration:none; font-weight:bold;">⚙️ SCHEMA & INSTELLINGEN</a></p>
+        {% for tv in tvs %}
+        {# VEILIGE BEREKENING #}
+        {% set e = tv.elapsed|float if tv.elapsed else 0.0 %}
+        {% set l = tv.limit|float if tv.limit and tv.limit|float > 0 else 1.0 %}
+        {% set usage = (e / l * 100) %}
         
-        // Auto-refresh elke 30 seconden voor de timer
-        setTimeout(() => location.reload(), 30000);
+        <div class="card {{ 'locked' if tv.locked else '' }} {{ 'unlimited' if tv.no_limit else '' }}">
+            <div style="display:flex; justify-content:space-between">
+                <h2 style="margin:0">{{ tv.name }}</h2>
+                <small>● {{ 'Online' if tv.online else 'Offline' }}</small>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar {{ 'blue' if tv.no_limit else '' }}" style="width: {{ 100 if tv.no_limit else (usage if usage < 100 else 100) }}%"></div>
+            </div>
+            <div class="stats">
+                <span>Vandaag: <b>{{ e|int }}m</b></span>
+                <span>Over: <b>{{ '∞' if tv.no_limit else (tv.remaining|int|string + 'm') }}</b></span>
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <button class="btn btn-blue" onclick="apiCall('api/add_time/{{ tv.name }}', 'minutes=15')" {{ 'disabled' if tv.no_limit else '' }}>+15m</button>
+                <button class="btn btn-dark" onclick="apiCall('api/toggle_lock/{{ tv.name }}')">{{ '🔓 Open' if not tv.manual_lock else '🔒 Op Slot' }}</button>
+                <button class="btn btn-reset" onclick="if(confirm('Reset kijktijd voor vandaag?')) apiCall('api/reset/{{ tv.name }}')">🔄 Reset Vandaag</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <script>
+        async function apiCall(url, body) {
+            await fetch(url.startsWith('/') ? url.substring(1) : url, { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body });
+            window.location.reload();
+        }
     </script>
 </body>
 </html>

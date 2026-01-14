@@ -1,5 +1,5 @@
 name: "KidsLock Manager"
-version: "1.7.0.4"
+version: "1.7.0.2"
 slug: "kidslock-manager"
 description: "v1.7.0.2 Hotfix: Fix voor terugspringende MQTT switches en typesafety dashboard."
 url: "https://github.com/svdveer/kidslock-repository"
