@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "1.7.0.7"
+version: "1.7.0.8"
 slug: "kidslock-manager"
-description: "v1.7.0.7 - Dashboard Sync & HA Button Support"
+description: "v1.7.0.8 - Smart Status & Button Support"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
