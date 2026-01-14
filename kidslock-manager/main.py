@@ -41,18 +41,20 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT v1.7.0.8 Verbonden - Discovery Actief")
+        logger.info("MQTT v1.7.0.9 Verbonden - Discovery Actief")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
                 device = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
                 
+                # Discovery: Switch
                 client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
                     "name": "Vergrendeling", "command_topic": f"kidslock/{slug}/set", 
                     "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_switch", 
                     "device": device, "payload_on": "ON", "payload_off": "OFF"
                 }), retain=True)
                 
+                # Discovery: Sensor
                 client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", json.dumps({
                     "name": "Tijd Resterend", 
                     "state_topic": f"kidslock/{slug}/remaining", 
@@ -61,6 +63,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
                     "unique_id": f"kidslock_{slug}_rem", "device": device, "icon": "mdi:timer-sand"
                 }), retain=True)
 
+                # Discovery: Buttons
                 client.publish(f"homeassistant/button/kidslock_{slug}_add/config", json.dumps({
                     "name": "Voeg 15m toe", "command_topic": f"kidslock/{slug}/add", 
                     "unique_id": f"kidslock_{slug}_btn_add", "device": device, "icon": "mdi:plus-circle"
@@ -102,6 +105,7 @@ try:
     mqtt_client.loop_start()
 except: pass
 
+# --- MONITOR LOOP ---
 def monitor():
     last_tick = time.time()
     days_map = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"]
@@ -140,7 +144,9 @@ def monitor():
                     
                     if should_lock != s["locked"]:
                         action = "lock" if should_lock else "unlock"
-                        try: requests.post(f"http://{ip}:8080/{action}", timeout=1); s["locked"] = should_lock
+                        try: 
+                            requests.post(f"http://{ip}:8080/{action}", timeout=1)
+                            s["locked"] = should_lock
                         except: pass
 
                     slug = name.lower().replace(" ", "_")
