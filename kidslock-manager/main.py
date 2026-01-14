@@ -1,8 +1,8 @@
 import os, json, time, sqlite3, requests, threading, datetime
 import paho.mqtt.client as mqtt
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, request, jsonify
 
-# --- DATABASE INITIALISATIE ---
+# --- DATABASE ---
 DB_PATH = "/data/kidslock.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -11,171 +11,100 @@ def init_db():
                  (slug TEXT PRIMARY KEY, name TEXT, ip TEXT, 
                   manual_lock BOOLEAN, minutes_used INTEGER, 
                   last_reset TEXT, schedule TEXT)''')
-    conn.commit()
-    conn.close()
-
+    conn.commit(); conn.close()
 init_db()
 
-# --- DATA LADEN ---
-devices = {}
-def load_devices():
-    global devices
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row # Zorgt voor makkelijke toegang
-        c = conn.cursor()
-        c.execute("SELECT * FROM devices")
-        rows = c.fetchall()
-        
-        new_devices = {}
-        for row in rows:
-            new_devices[row['slug']] = {
-                "name": row['name'],
-                "ip": row['ip'],
-                "manual_lock": bool(row['manual_lock']),
-                "minutes_used": row['minutes_used'],
-                "last_reset": row['last_reset'],
-                "schedule": json.loads(row['schedule']),
-                "online": False
-            }
-        devices = new_devices
-        conn.close()
-        print(f"INFO: {len(devices)} apparaten geladen uit DB.")
-    except Exception as e:
-        print(f"ERROR: Laden database mislukt: {e}")
+def get_db_devices():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM devices")
+    rows = c.fetchall()
+    data = [dict(row) for row in rows]
+    conn.close()
+    return data
 
-load_devices()
-
-# --- MQTT SETUP ---
-options = {}
-try:
-    with open("/data/options.json", "r") as f:
-        options = json.load(f)
-except:
-    pass
-
-mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-if options.get("mqtt_user"):
-    mqtt_client.username_pw_set(options["mqtt_user"], options["mqtt_password"])
-
-def update_mqtt_state(slug):
-    if slug not in devices: return
-    s = devices[slug]
-    mqtt_client.publish(f"kidslock/{slug}/state", "ON" if s["manual_lock"] else "OFF", retain=True)
-
-try:
-    mqtt_client.connect(options.get("mqtt_host", "core-mosquitto"), options.get("mqtt_port", 1883), 60)
-    mqtt_client.loop_start()
-except:
-    print("ERROR: MQTT Verbinding mislukt.")
-
-# --- FLASK DASHBOARD ---
+# --- FLASK ---
 app = Flask(__name__)
-
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="nl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KidsLock Manager</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background-color: #f0f2f5; padding-top: 50px; }
-        .card-kids { border: none; border-radius: 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); transition: 0.3s; }
-        .card-kids:hover { transform: translateY(-5px); }
-        .timer { font-size: 2.5rem; font-weight: 800; color: #0d6efd; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="d-flex justify-content-between align-items-center mb-5">
-            <h1 class="fw-bold">🔐 KidsLock Dashboard</h1>
-            <a href="/settings" class="btn btn-dark rounded-pill px-4">Instellingen</a>
-        </div>
-
-        {% if not devices %}
-        <div class="alert alert-warning p-5 text-center shadow-sm" style="border-radius: 20px;">
-            <h2 class="alert-heading">Geen apparaten gevonden!</h2>
-            <p>Er staan momenteel geen TV's in de database.</p>
-            <hr>
-            <form action="/api/add" method="POST" class="d-inline">
-                <input type="hidden" name="n" value="Test TV">
-                <input type="hidden" name="i" value="192.168.1.100">
-                <button type="submit" class="btn btn-warning fw-bold">Klik hier om een Test TV toe te voegen</button>
-            </form>
-        </div>
-        {% else %}
-        <div class="row">
-            {% for slug, s in devices.items() %}
-            <div class="col-md-4 mb-4">
-                <div class="card card-kids p-4">
-                    <h3 class="mb-0">{{ s.name }}</h3>
-                    <small class="text-muted">{{ s.ip }}</small>
-                    <div class="text-center my-4">
-                        <div class="timer">{{ s.minutes_used }} <small style="font-size: 1rem;">min</small></div>
-                    </div>
-                    <button onclick="toggle('{{ slug }}')" 
-                            id="btn-{{ slug }}"
-                            class="btn {{ 'btn-danger' if s.manual_lock else 'btn-success' }} btn-lg w-100 fw-bold rounded-pill">
-                        {{ 'ONTGRENDELEN' if s.manual_lock else 'VERGRENDELEN' }}
-                    </button>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-    </div>
-
-    <script>
-        function toggle(slug) {
-            const btn = document.getElementById('btn-' + slug);
-            btn.disabled = true;
-            fetch('/api/toggle/' + slug, { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    if(data.success) {
-                        location.reload();
-                    }
-                });
-        }
-    </script>
-</body>
-</html>
-"""
 
 @app.route('/')
 def index():
-    load_devices()
-    return render_template_string(HTML_TEMPLATE, devices=devices)
+    devices = get_db_devices()
+    
+    # RELATIEVE LINKS: We halen de / voor 'settings' en 'api' weg
+    html = """
+    <!DOCTYPE html><html><head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>KidsLock</title>
+    </head><body class="container p-4 bg-light">
+    <div class="d-flex justify-content-between mb-4">
+        <h1>🔐 KidsLock Dashboard</h1>
+        <a href="settings" class="btn btn-dark">Instellingen</a>
+    </div>
+    <div class="row">
+    """
+    
+    if not devices:
+        html += """
+        <div class="col-12 text-center p-5 border bg-white rounded shadow-sm">
+            <h2 class="text-warning">Geen apparaten gevonden!</h2>
+            <p>De database is momenteel leeg.</p>
+            <form action="api/add" method="POST">
+                <input type="hidden" name="n" value="Woonkamer TV">
+                <input type="hidden" name="i" value="192.168.2.79">
+                <button type="submit" class="btn btn-warning fw-bold px-4">Klik hier om een Test TV toe te voegen</button>
+            </form>
+        </div>
+        """
+    else:
+        for d in devices:
+            btn_class = "btn-danger" if d['manual_lock'] else "btn-success"
+            btn_text = "ONTGRENDELEN" if d['manual_lock'] else "VERGRENDELEN"
+            html += f"""
+            <div class="col-md-4 mb-3">
+                <div class="card p-3 shadow-sm border-0" style="border-radius:15px;">
+                    <h4 class="mb-1">{d['name']}</h4>
+                    <p class="text-muted small">{d['ip']}</p>
+                    <h2 class="text-center text-primary my-3">{d['minutes_used']} min</h2>
+                    <button onclick="toggle('{d['slug']}')" class="btn {btn_class} w-100 fw-bold">{btn_text}</button>
+                </div>
+            </div>
+            """
+
+    html += """
+    </div>
+    <script>
+    function toggle(slug) {
+        // GEEN / voor api: dit houdt het verzoek binnen de ingress tunnel
+        fetch('api/toggle/' + slug, { method: 'POST' }).then(() => location.reload());
+    }
+    </script>
+    </body></html>
+    """
+    return html
 
 @app.route('/settings')
 def settings():
+    # Ook hier: actie is 'api/add' (relatief), niet '/api/add'
     return """
-    <div style="font-family: sans-serif; padding: 50px; text-align: center;">
+    <body class="container p-4">
         <h1>Instellingen</h1>
-        <form action="/api/add" method="POST" style="display: inline-block; text-align: left; background: #eee; padding: 20px; border-radius: 10px;">
-            Naam: <br><input name="n" style="width: 100%; margin-bottom: 10px;" required><br>
-            IP Adres: <br><input name="i" style="width: 100%; margin-bottom: 10px;" required><br>
-            <button type="submit" style="width: 100%; background: blue; color: white; border: none; padding: 10px; border-radius: 5px;">Voeg TV Toe</button>
+        <form action="api/add" method="POST" class="card p-4 border-0 shadow-sm">
+            <div class="mb-3"><label>Naam:</label><input name="n" class="form-control" required></div>
+            <div class="mb-3"><label>IP Adres:</label><input name="i" class="form-control" required></div>
+            <button class="btn btn-primary w-100">Apparaat Opslaan</button>
         </form>
-        <br><br><a href="/">Terug naar Dashboard</a>
-    </div>
+        <br><a href="./" class="btn btn-link">← Terug naar Dashboard</a>
+    </body>
     """
 
 @app.route('/api/toggle/<slug>', methods=['POST'])
 def toggle(slug):
-    if slug in devices:
-        new_state = not devices[slug]["manual_lock"]
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("UPDATE devices SET manual_lock = ? WHERE slug = ?", (new_state, slug))
-        conn.commit()
-        conn.close()
-        load_devices()
-        update_mqtt_state(slug)
-        return jsonify(success=True)
-    return jsonify(success=False), 404
+    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+    c.execute("UPDATE devices SET manual_lock = NOT manual_lock WHERE slug = ?", (slug,))
+    conn.commit(); conn.close()
+    return jsonify(success=True)
 
 @app.route('/api/add', methods=['POST'])
 def add():
@@ -185,8 +114,8 @@ def add():
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO devices VALUES (?,?,?,0,0,'',?)", (s,n,i,sch))
     conn.commit(); conn.close()
-    load_devices()
-    return '<script>window.location.href="/";</script>'
+    # De redirect moet ook relatief via JS om 404 te voorkomen
+    return '<script>window.location.href="./";</script>'
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
