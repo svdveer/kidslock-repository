@@ -1,190 +1,181 @@
-import os, json, time, sqlite3, requests, threading, datetime
+import logging, threading, time, sqlite3, requests, json, os, datetime
 import paho.mqtt.client as mqtt
-from flask import Flask, request, jsonify, redirect
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from starlette.responses import RedirectResponse
+import uvicorn
 
-# --- DATABASE ---
+# --- CONFIG & LOGGING ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
+OPTIONS_PATH = "/data/options.json"
+
+try:
+    with open(OPTIONS_PATH, 'r') as f: options = json.load(f)
+except: options = {}
+
+mqtt_conf = options.get("mqtt", {})
+MQTT_HOST = options.get("mqtt_host", "core-mosquitto")
+MQTT_PORT = options.get("mqtt_port", 1883)
+
+# --- DATABASE & LOGICA ---
+def get_default_schedule():
+    days = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"]
+    return {d: {"limit": 120, "bedtime": "20:00"} for d in days}
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS devices 
-                 (slug TEXT PRIMARY KEY, name TEXT, ip TEXT, 
-                  manual_lock BOOLEAN, minutes_used INTEGER, 
-                  last_reset TEXT, schedule TEXT)''')
-    conn.commit(); conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS tv_configs 
+                        (name TEXT PRIMARY KEY, ip TEXT, no_limit INTEGER DEFAULT 0, 
+                         elapsed REAL DEFAULT 0, last_reset TEXT, schedule TEXT)''')
 init_db()
 
-def get_db_devices(slug=None):
-    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    if slug:
-        c.execute("SELECT * FROM devices WHERE slug = ?", (slug,))
-        row = c.fetchone(); conn.close()
-        return dict(row) if row else None
-    c.execute("SELECT * FROM devices")
-    rows = c.fetchall(); data = [dict(row) for row in rows]; conn.close()
-    return data
+tv_states = {}
+data_lock = threading.RLock()
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
-# --- MQTT SETUP ---
-options = {}
+def on_connect(client, userdata, flags, rc, properties=None):
+    logger.info(f"MQTT Verbonden status: {rc}")
+    with data_lock:
+        for name in tv_states:
+            slug = name.lower().replace(" ", "_")
+            client.subscribe(f"kidslock/{slug}/set")
+            # Discovery logic
+            device = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
+            client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
+                "name": "Vergrendeling", "command_topic": f"kidslock/{slug}/set", 
+                "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_sw", 
+                "device": device, "payload_on": "ON", "payload_off": "OFF"
+            }), retain=True)
+
+def on_message(client, userdata, msg):
+    parts = msg.topic.split('/')
+    if len(parts) < 3: return
+    slug, cmd = parts[1], parts[2]
+    payload = msg.payload.decode().upper()
+    with data_lock:
+        for name, s in tv_states.items():
+            if name.lower().replace(" ", "_") == slug and cmd == "set":
+                is_on = (payload == "ON")
+                s["manual_lock"] = is_on
+                client.publish(f"kidslock/{slug}/state", payload, retain=True)
+                threading.Thread(target=lambda: requests.get(f"http://{s['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=1)).start()
+
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+if options.get("mqtt_user"): mqtt_client.username_pw_set(options["mqtt_user"], options.get("mqtt_password"))
+
 try:
-    with open("/data/options.json", "r") as f: options = json.load(f)
+    mqtt_client.connect_async(MQTT_HOST, MQTT_PORT)
+    mqtt_client.loop_start()
 except: pass
 
-mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-if options.get("mqtt_user"):
-    mqtt_client.username_pw_set(options["mqtt_user"], options["mqtt_password"])
-
-def update_mqtt(slug, name, manual_lock, minutes_used, schedule_json):
-    try:
-        schedule = json.loads(schedule_json)
-        now = datetime.datetime.now()
-        day_cfg = schedule.get(now.strftime("%A"), {"limit": 60, "bedtime": "20:00"})
-        limit = int(day_cfg["limit"])
-        is_bedtime = now.time() >= datetime.datetime.strptime(day_cfg["bedtime"], "%H:%M").time()
-        
-        # Onbeperkt logica: als limit 999 is, wordt tijd genegeerd
-        is_over_limit = (minutes_used >= limit) if limit < 999 else False
-        
-        effective_lock = manual_lock or is_bedtime or is_over_limit
-        mqtt_client.publish(f"kidslock/{slug}/state", "ON" if effective_lock else "OFF", retain=True)
-    except: pass
-
-mqtt_client.connect(options.get("mqtt_host", "core-mosquitto"), options.get("mqtt_port", 1883), 60)
-mqtt_client.loop_start()
-
-# --- MONITOR LOOP ---
+# --- MONITORING ---
 def monitor():
+    days_map = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"]
     while True:
-        devices = get_db_devices()
-        now = datetime.datetime.now()
-        for d in devices:
-            # Dagelijkse Reset
-            if d['last_reset'] != now.strftime("%Y-%m-%d"):
-                conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-                c.execute("UPDATE devices SET minutes_used = 0, last_reset = ? WHERE slug = ?", (now.strftime("%Y-%m-%d"), d['slug']))
-                conn.commit(); conn.close()
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                rows = conn.execute("SELECT name, ip, no_limit, elapsed, last_reset, schedule FROM tv_configs").fetchall()
+            
+            now = datetime.datetime.now()
+            today_date = now.strftime("%Y-%m-%d")
+            
+            with data_lock:
+                for name, ip, no_limit, elapsed, last_reset, sched_json in rows:
+                    if last_reset != today_date:
+                        elapsed = 0.0
+                        with sqlite3.connect(DB_PATH) as c:
+                            c.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ? WHERE name = ?", (today_date, name))
+                    
+                    if name not in tv_states:
+                        tv_states[name] = {"ip": ip, "online": False, "locked": False, "manual_lock": False, "elapsed": elapsed}
+                    
+                    s = tv_states[name]
+                    sched = json.loads(sched_json) if sched_json else get_default_schedule()
+                    day_cfg = sched.get(days_map[now.weekday()], {"limit": 120, "bedtime": "20:00"})
+                    
+                    # Status Check
+                    try:
+                        r = requests.get(f"http://{ip}:8080/status", timeout=1).json()
+                        s["online"] = True
+                        s["locked"] = r.get("locked", False)
+                        if s["online"] and not s["locked"] and not no_limit:
+                            s["elapsed"] += 0.5 # Elke 30 sec tick
+                            with sqlite3.connect(DB_PATH) as c:
+                                c.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (s["elapsed"], name))
+                    except: s["online"] = False
 
-            # TV Status & Time Counting
-            try:
-                resp = requests.get(f"http://{d['ip']}:8080/status", timeout=1.5).json()
-                if not resp.get("locked"):
-                    new_m = d['minutes_used'] + 1
-                    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-                    c.execute("UPDATE devices SET minutes_used = ? WHERE slug = ?", (new_m, d['slug']))
-                    conn.commit(); conn.close()
-            except: pass
-            update_mqtt(d['slug'], d['name'], bool(d['manual_lock']), d['minutes_used'], d['schedule'])
-        time.sleep(60)
+                    # Auto-lock logic
+                    is_past_bedtime = now.strftime("%H:%M") >= day_cfg['bedtime']
+                    should_lock = s["manual_lock"] or (not no_limit and (s["elapsed"] >= float(day_cfg['limit']) or is_past_bedtime))
+                    
+                    if should_lock != s["locked"]:
+                        requests.get(f"http://{ip}:8080/{'lock' if should_lock else 'unlock'}", timeout=1)
+                    
+                    # MQTT Updates
+                    slug = name.lower().replace(" ", "_")
+                    mqtt_client.publish(f"kidslock/{slug}/state", "ON" if should_lock else "OFF", retain=True)
+                    rem = max(0, float(day_cfg['limit']) - s['elapsed'])
+                    mqtt_client.publish(f"kidslock/{slug}/remaining", "∞" if no_limit else f"{int(rem)} min", retain=True)
+
+        except Exception as e: logger.error(f"Monitor error: {e}")
+        time.sleep(30)
 
 threading.Thread(target=monitor, daemon=True).start()
 
-# --- FLASK WEB UI ---
-app = Flask(__name__)
+# --- WEB UI (FastAPI) ---
+app = FastAPI()
 
-STYLE = """
-<style>
-    body { font-family: sans-serif; background: #f4f7f9; padding: 20px; color: #333; }
-    .card { background: white; border-radius: 15px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; text-align: center; max-width: 500px; margin-inline: auto; }
-    .timer { font-size: 2.5rem; font-weight: bold; color: #3498db; margin: 10px 0; }
-    .btn { padding: 10px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block; width: 100%; margin-bottom: 8px; font-size: 14px; box-sizing: border-box; }
-    .btn-green { background: #27ae60; color: white; }
-    .btn-red { background: #e74c3c; color: white; }
-    .btn-blue { background: #3498db; color: white; }
-    .btn-purple { background: #9b59b6; color: white; }
-    .btn-outline { background: white; border: 2px solid #3498db; color: #3498db; }
-    .btn-warn { background: #f39c12; color: white; }
-    input { width: 100%; padding: 8px; margin: 5px 0 15px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
-    label { font-weight: bold; font-size: 13px; display: block; text-align: left; }
-    .grid-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-</style>
-"""
+HTML_HEAD = """<head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+<style>body{background:#f8f9fa;padding:20px;}.card{border-radius:15px;box-shadow:0 4px 8px rgba(0,0,0,0.05);margin-bottom:20px;}</style></head>"""
 
-@app.route('/')
-def index():
-    devices = get_db_devices()
-    html = f"<html><head><meta charset='UTF-8'>{STYLE}</head><body>"
-    html += '<div style="display:flex; justify-content:space-between; align-items:center; max-width:500px; margin:auto; margin-bottom:20px;"><h1>🔐 KidsLock</h1><a href="settings" class="btn btn-blue" style="width:auto;">+ Nieuw</a></div>'
-    for d in devices:
-        sch = json.loads(d['schedule'])
-        day_limit = int(sch.get(datetime.datetime.now().strftime("%A"), {}).get("limit", 60))
-        is_unlimited = day_limit >= 999
-        btn_txt = "ONTGRENDELEN" if d['manual_lock'] else "VERGRENDELEN"
-        btn_cls = "btn-red" if d['manual_lock'] else "btn-green"
-        
-        html += f"""
-        <div class="card">
-            <h3 style="margin:0;">{d['name']} {"🚀" if is_unlimited else ""}</h3>
-            <div class="timer">{d['minutes_used']} <span style="font-size:15px;">/ {'∞' if is_unlimited else day_limit} min</span></div>
-            <form action="api/toggle/{d['slug']}" method="POST"><button class="btn {btn_cls}">{btn_txt}</button></form>
-            <div class="grid-btns">
-                <form action="api/unlimited/{d['slug']}" method="POST"><button class="btn btn-purple">Onbeperkt</button></form>
-                <a href="schedule/{d['slug']}" class="btn btn-blue">Planning</a>
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    html = f"<html>{HTML_HEAD}<body><div class='container'><h1>🔐 KidsLock Dashboard</h1>"
+    with data_lock:
+        for name, s in tv_states.items():
+            cls = "danger" if s['locked'] else "success"
+            html += f"""<div class='card p-3'><h3>{name}</h3>
+            <h1 class='text-primary'>{int(s['elapsed'])} min gebruikt</h1>
+            <div class='d-flex gap-2'>
+                <form action='api/toggle_lock/{name}' method='post' class='flex-grow-1'><button class='btn btn-{cls} w-100'>{'ONTGRENDELEN' if s['locked'] else 'VERGRENDELEN'}</button></form>
+                <form action='api/reset/{name}' method='post'><button class='btn btn-warning'>Reset</button></form>
             </div>
-            <div class="grid-btns">
-                <form action="api/add_time/{d['slug']}/15" method="POST"><button class="btn btn-outline">+15 min</button></form>
-                <form action="api/reset/{d['slug']}" method="POST"><button class="btn btn-warn">Dag-Reset</button></form>
-            </div>
-        </div>"""
-    return html + "</body></html>"
+            <a href='settings' class='btn btn-link mt-2'>Instellingen & Schema</a></div>"""
+    return html + "</div></body></html>"
 
-@app.route('/schedule/<slug>')
-def schedule(slug):
-    d = get_db_devices(slug); sch = json.loads(d['schedule'])
-    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    html = f"<html><head><meta charset='UTF-8'>{STYLE}</head><body><div class='card'><h2>Planning: {d['name']}</h2><form action='../api/save_sch/{slug}' method='POST'>"
-    for day in days:
-        html += f"<div style='border-bottom: 1px solid #eee; padding: 10px 0; text-align: left;'>"
-        html += f"<strong>{day}</strong><div class='grid-btns'>"
-        html += f"<span>Limiet (999=∞): <input type='number' name='lim_{day}' value='{sch[day]['limit']}'></span>"
-        html += f"<span>Bedtijd: <input type='time' name='bed_{day}' value='{sch[day]['bedtime']}'></span></div></div>"
-    html += "<button class='btn btn-green' style='margin-top:20px;'>Opslaan</button></form><a href='../' class='btn btn-blue'>Terug</a></div></body></html>"
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_ui(request: Request):
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute("SELECT name, ip, no_limit, schedule FROM tv_configs").fetchall()
+    html = f"<html>{HTML_HEAD}<body><div class='container'><h1>Settings</h1>"
+    for r in rows:
+        html += f"<div class='card p-3'><h4>{r[0]} ({r[1]})</h4><form action='api/delete_tv/{r[0]}' method='post'><button class='btn btn-sm btn-danger'>Verwijder</button></form></div>"
+    html += "<a href='./' class='btn btn-secondary'>Terug</a></div></body></html>"
     return html
 
-@app.route('/api/save_sch/<slug>', methods=['POST'])
-def save_sch(slug):
-    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    new_sch = {day: {"limit": request.form[f"lim_{day}"], "bedtime": request.form[f"bed_{day}"]} for day in days}
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-    c.execute("UPDATE devices SET schedule = ? WHERE slug = ?", (json.dumps(new_sch), slug))
-    conn.commit(); conn.close(); return redirect("../", code=302)
+@app.post("/api/toggle_lock/{name}")
+async def toggle_lock(name: str):
+    with data_lock:
+        if name in tv_states:
+            tv_states[name]["manual_lock"] = not tv_states[name]["manual_lock"]
+    return RedirectResponse(url="./", status_code=303)
 
-@app.route('/api/unlimited/<slug>', methods=['POST'])
-def set_unlimited(slug):
-    d = get_db_devices(slug); sch = json.loads(d['schedule']); today = datetime.datetime.now().strftime("%A")
-    sch[today]["limit"] = 999
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-    c.execute("UPDATE devices SET schedule = ? WHERE slug = ?", (json.dumps(sch), slug))
-    conn.commit(); conn.close(); return redirect("./", code=302)
+@app.post("/api/reset/{name}")
+async def reset_tv(name: str):
+    with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
+    with data_lock:
+        if name in tv_states: tv_states[name]["elapsed"] = 0
+    return RedirectResponse(url="./", status_code=303)
 
-@app.route('/settings')
-def settings():
-    return f"<html><head><meta charset='UTF-8'>{STYLE}</head><body><div class='card'><h1>Nieuwe TV</h1><form action='api/add' method='POST'><label>Naam:</label><input name='n' required><label>IP Adres:</label><input name='i' required><button class='btn btn-green'>Toevoegen</button></form><a href='./' class='btn btn-blue'>Terug</a></div></body></html>"
-
-@app.route('/api/toggle/<slug>', methods=['POST'])
-def toggle(slug):
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-    c.execute("UPDATE devices SET manual_lock = NOT manual_lock WHERE slug = ?", (slug,))
-    conn.commit(); conn.close(); return redirect("./", code=302)
-
-@app.route('/api/add_time/<slug>/<int:mins>', methods=['POST'])
-def add_time(slug, mins):
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-    c.execute("UPDATE devices SET minutes_used = MAX(0, minutes_used - ?) WHERE slug = ?", (mins, slug))
-    conn.commit(); conn.close(); return redirect("../../", code=302)
-
-@app.route('/api/reset/<slug>', methods=['POST'])
-def reset(slug):
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-    c.execute("UPDATE devices SET minutes_used = 0 WHERE slug = ?", (slug,))
-    conn.commit(); conn.close(); return redirect("./", code=302)
-
-@app.route('/api/add', methods=['POST'])
-def add():
-    n, i = request.form['n'], request.form['i']; s = n.lower().replace(" ", "_")
-    sch = json.dumps({day: {"limit": 60, "bedtime": "20:00"} for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]})
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO devices VALUES (?, ?, ?, 0, 0, '', ?)", (s, n, i, sch))
-    conn.commit(); conn.close(); return redirect("../", code=302)
+@app.post("/api/delete_tv/{name}")
+async def delete_tv(name: str):
+    with sqlite3.connect(DB_PATH) as conn: conn.execute("DELETE FROM tv_configs WHERE name = ?", (name,))
+    return RedirectResponse(url="../settings", status_code=303)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
