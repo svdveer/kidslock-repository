@@ -1,5 +1,5 @@
 name: "KidsLock Manager"
-version: "1.7.0.7"
+version: "1.7.0.6db"
 slug: "kidslock_manager"
 description: "Beheer schermtijd voor Android TV's met weekschema en MQTT"
 arch:
