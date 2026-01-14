@@ -39,28 +39,19 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT v1.7.0.2 Verbonden")
+        logger.info("MQTT v1.7.2.6 Verbonden")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
                 device = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
-                # Switch Discovery met payload definities
                 client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
-                    "name": "Vergrendeling", 
-                    "command_topic": f"kidslock/{slug}/set", 
-                    "state_topic": f"kidslock/{slug}/state", 
-                    "unique_id": f"kidslock_{slug}_switch", 
-                    "device": device,
-                    "payload_on": "ON",
-                    "payload_off": "OFF",
-                    "optimistic": False
+                    "name": "Vergrendeling", "command_topic": f"kidslock/{slug}/set", 
+                    "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_switch", 
+                    "device": device, "payload_on": "ON", "payload_off": "OFF", "optimistic": False
                 }), retain=True)
                 client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", json.dumps({
-                    "name": "Tijd Resterend", 
-                    "state_topic": f"kidslock/{slug}/remaining", 
-                    "unique_id": f"kidslock_{slug}_rem", 
-                    "device": device, 
-                    "icon": "mdi:timer-sand"
+                    "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", 
+                    "unique_id": f"kidslock_{slug}_rem", "device": device, "icon": "mdi:timer-sand"
                 }), retain=True)
                 client.subscribe(f"kidslock/{slug}/#")
 
@@ -71,15 +62,12 @@ def on_message(client, userdata, msg):
     payload = msg.payload.decode().upper()
     with data_lock:
         for name, s in tv_states.items():
-            if name.lower().replace(" ", "_") == slug:
-                if cmd == "set":
-                    is_on = (payload == "ON")
-                    s["manual_lock"] = is_on
-                    # DIRECTE FEEDBACK naar HA om terugspringen te voorkomen
-                    client.publish(f"kidslock/{slug}/state", payload, retain=True)
-                    
-                    action = "lock" if is_on else "unlock"
-                    threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{action}", timeout=1)).start()
+            if name.lower().replace(" ", "_") == slug and cmd == "set":
+                is_on = (payload == "ON")
+                s["manual_lock"] = is_on
+                client.publish(f"kidslock/{slug}/state", payload, retain=True)
+                action = "lock" if is_on else "unlock"
+                threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{action}", timeout=1)).start()
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
@@ -97,52 +85,36 @@ def monitor():
             conn = sqlite3.connect(DB_PATH)
             rows = conn.execute("SELECT name, ip, no_limit, elapsed, last_reset, schedule FROM tv_configs").fetchall()
             conn.close()
-            
             now = datetime.now()
             today_name = days_map[now.weekday()]
-            current_time = now.strftime("%H:%M")
             today_date = now.strftime("%Y-%m-%d")
             delta = (time.time() - last_tick) / 60.0
             last_tick = time.time()
-            
             with data_lock:
                 for name, ip, no_limit, elapsed, last_reset, sched_json in rows:
-                    sched = json.loads(sched_json) if sched_json else get_default_schedule()
-                    day_cfg = sched.get(today_name, {"limit": 120, "bedtime": "20:00"})
-                    
                     if last_reset != today_date:
                         elapsed = 0.0
                         with sqlite3.connect(DB_PATH) as c:
                             c.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ? WHERE name = ?", (today_date, name))
-                    
                     if name not in tv_states:
                         tv_states[name] = {"ip": ip, "online": False, "locked": False, "manual_lock": False}
-                    
                     s = tv_states[name]
-                    s.update({
-                        "limit": float(day_cfg['limit']),
-                        "bedtime": day_cfg['bedtime'],
-                        "no_limit": int(no_limit),
-                        "elapsed": float(elapsed)
-                    })
-                    
+                    sched = json.loads(sched_json) if sched_json else get_default_schedule()
+                    day_cfg = sched.get(today_name, {"limit": 120, "bedtime": "20:00"})
+                    s.update({"limit": float(day_cfg['limit']), "bedtime": day_cfg['bedtime'], "no_limit": int(no_limit), "elapsed": float(elapsed)})
                     res = subprocess.run(['ping', '-c', '1', '-W', '1', ip], stdout=subprocess.DEVNULL)
                     s["online"] = (res.returncode == 0)
                     s["remaining"] = max(0, s['limit'] - s['elapsed'])
-                    is_past_bedtime = current_time >= s['bedtime']
-                    
+                    is_past_bedtime = now.strftime("%H:%M") >= s['bedtime']
                     should_lock = s["manual_lock"] or (not s["no_limit"] and (s["remaining"] <= 0 or is_past_bedtime))
-                    
                     if should_lock != s["locked"] or (s["online"] and should_lock):
                         action = "lock" if should_lock else "unlock"
                         try: requests.post(f"http://{ip}:8080/{action}", timeout=1); s["locked"] = should_lock
                         except: pass
-
                     if s["online"] and not s["locked"] and not s["no_limit"]:
                         s["elapsed"] += delta
                         with sqlite3.connect(DB_PATH) as c:
                             c.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (s["elapsed"], name))
-                    
                     slug = name.lower().replace(" ", "_")
                     mqtt_client.publish(f"kidslock/{slug}/state", "ON" if s["locked"] else "OFF")
                     status_val = "Onbeperkt" if s["no_limit"] else (f"BEDTIJD" if is_past_bedtime else f"{int(s['remaining'])} min")
@@ -158,8 +130,9 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     with data_lock:
-        tvs_list = [{"name": n, **s} for n, s in tv_states.items()]
-    return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs_list})
+        # Cruciaal: We sturen de data als 'devices' dictionary zodat {% for slug, s in devices.items() %} werkt.
+        devices_dict = {n.lower().replace(" ", "_"): {"name": n, **s} for n, s in tv_states.items()}
+    return templates.TemplateResponse("index.html", {"request": request, "devices": devices_dict})
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_ui(request: Request):
@@ -184,10 +157,10 @@ async def api_handler(action: str, name: str, minutes: int = Form(None)):
             if action == "add_time": tv_states[name]["elapsed"] -= minutes
             elif action == "reset":
                 with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
+                tv_states[name]["elapsed"] = 0
             elif action == "toggle_lock": 
                 is_on = not tv_states[name]["manual_lock"]
                 tv_states[name]["manual_lock"] = is_on
-                # Ook feedback voor WebUI acties
                 slug = name.lower().replace(" ", "_")
                 mqtt_client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
     return JSONResponse({"status": "ok"})
