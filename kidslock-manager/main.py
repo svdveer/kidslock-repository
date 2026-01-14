@@ -41,39 +41,33 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT Verbonden - Top-Down modus actief")
+        logger.info("MQTT v1.7.0.4 Verbonden")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
                 device = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
-                # Discovery
                 client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
                     "name": "Vergrendeling", 
                     "command_topic": f"kidslock/{slug}/set", 
                     "state_topic": f"kidslock/{slug}/state", 
                     "unique_id": f"kidslock_{slug}_switch", 
                     "device": device,
-                    "payload_on": "ON", "payload_off": "OFF"
+                    "payload_on": "ON", "payload_off": "OFF", "optimistic": False
                 }), retain=True)
                 client.subscribe(f"kidslock/{slug}/set")
 
 def on_message(client, userdata, msg):
-    """Luistert naar Home Assistant en stuurt door naar de interne API logica"""
     parts = msg.topic.split('/')
     if len(parts) < 3: return
     slug = parts[1]
     payload = msg.payload.decode().upper()
-    
     with data_lock:
         for name, s in tv_states.items():
             if name.lower().replace(" ", "_") == slug:
-                is_lock = (payload == "ON")
-                logger.info(f"MQTT Command voor {name}: {payload}")
-                # Update staat & stuur commando naar TV
-                s["manual_lock"] = is_lock
-                action = "lock" if is_lock else "unlock"
-                threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{action}", timeout=2)).start()
-                # Bevestig status terug naar HA
+                is_on = (payload == "ON")
+                s["manual_lock"] = is_on
+                action = "lock" if is_on else "unlock"
+                threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{action}", timeout=1)).start()
                 client.publish(f"kidslock/{slug}/state", payload, retain=True)
 
 mqtt_client.on_connect = on_connect
@@ -84,8 +78,7 @@ if mqtt_conf.get("username"):
 try:
     mqtt_client.connect_async(MQTT_HOST, MQTT_PORT)
     mqtt_client.loop_start()
-except Exception as e:
-    logger.error(f"MQTT Connectie mislukt: {e}")
+except: pass
 
 # --- MONITOR LOOP ---
 def monitor():
@@ -99,6 +92,7 @@ def monitor():
             
             now = datetime.now()
             today_name = days_map[now.weekday()]
+            current_time = now.strftime("%H:%M")
             today_date = now.strftime("%Y-%m-%d")
             delta = (time.time() - last_tick) / 60.0
             last_tick = time.time()
@@ -124,34 +118,27 @@ def monitor():
                         "elapsed": float(elapsed)
                     })
                     
-                    # Bereken status
                     res = subprocess.run(['ping', '-c', '1', '-W', '1', ip], stdout=subprocess.DEVNULL)
                     s["online"] = (res.returncode == 0)
                     s["remaining"] = max(0, s['limit'] - s['elapsed'])
-                    is_past_bedtime = now.strftime("%H:%M") >= s['bedtime']
+                    is_past_bedtime = current_time >= s['bedtime']
                     
-                    # Logica voor automatische vergrendeling
                     should_lock = s["manual_lock"] or (not s["no_limit"] and (s["remaining"] <= 0 or is_past_bedtime))
                     
-                    if should_lock != s["locked"]:
+                    if should_lock != s["locked"] or (s["online"] and should_lock):
                         action = "lock" if should_lock else "unlock"
-                        try: 
-                            requests.post(f"http://{ip}:8080/{action}", timeout=1)
-                            s["locked"] = should_lock
+                        try: requests.post(f"http://{ip}:8080/{action}", timeout=1); s["locked"] = should_lock
                         except: pass
 
-                    # Tijd bijhouden
                     if s["online"] and not s["locked"] and not s["no_limit"]:
                         s["elapsed"] += delta
                         with sqlite3.connect(DB_PATH) as c:
                             c.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (s["elapsed"], name))
                     
-                    # MQTT Updates (voor sensoren)
                     slug = name.lower().replace(" ", "_")
                     mqtt_client.publish(f"kidslock/{slug}/state", "ON" if s["locked"] else "OFF")
                     status_val = "Onbeperkt" if s["no_limit"] else (f"BEDTIJD" if is_past_bedtime else f"{int(s['remaining'])} min")
                     mqtt_client.publish(f"kidslock/{slug}/remaining", status_val)
-                    
         except Exception as e: logger.error(f"Monitor error: {e}")
         time.sleep(30)
 
@@ -164,7 +151,7 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     with data_lock:
-        # Hier maken we de dictionary 'devices' aan waar je index.html om vraagt
+        # Cruciaal voor het dashboard: stuur 'devices' dictionary
         devices_dict = {n.lower().replace(" ", "_"): {"name": n, **s} for n, s in tv_states.items()}
     return templates.TemplateResponse("index.html", {"request": request, "devices": devices_dict})
 
@@ -180,31 +167,21 @@ async def settings_ui(request: Request):
 
 @app.post("/api/{action}/{name}")
 async def api_handler(action: str, name: str, minutes: int = Form(None)):
-    """De centrale dirigent: Updates website, database EN MQTT tegelijk"""
     with data_lock:
         if name in tv_states:
             slug = name.lower().replace(" ", "_")
-            s = tv_states[name]
-            
-            if action == "add_time":
-                s["elapsed"] -= minutes
-                with sqlite3.connect(DB_PATH) as c:
-                    c.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (s["elapsed"], name))
-            
+            if action == "add_time": 
+                tv_states[name]["elapsed"] -= minutes
             elif action == "reset":
-                s["elapsed"] = 0
-                with sqlite3.connect(DB_PATH) as c:
-                    c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
-            
+                with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
+                tv_states[name]["elapsed"] = 0
             elif action == "toggle_lock": 
-                is_on = not s["manual_lock"]
-                s["manual_lock"] = is_on
-                # Stuur direct naar TV
-                tv_action = "lock" if is_on else "unlock"
-                threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{tv_action}", timeout=2)).start()
-                # Stuur direct naar MQTT voor HA sync
+                is_on = not tv_states[name]["manual_lock"]
+                tv_states[name]["manual_lock"] = is_on
+                # Direct naar MQTT voor directe sync
                 mqtt_client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
-
+                # Direct naar TV sturen
+                threading.Thread(target=lambda: requests.post(f"http://{tv_states[name]['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=1)).start()
     return JSONResponse({"status": "ok"})
 
 @app.post("/api/save_tv")
