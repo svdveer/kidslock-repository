@@ -52,8 +52,16 @@ def load_devices():
 
 load_devices()
 
-# --- MQTT SETUP ---
-mqtt_client = mqtt.Client()
+# --- HULPFUNCTIES ---
+
+def safe_tv_request(slug, action):
+    """Stuurt commando naar TV zonder de logs te vervuilen bij Timeouts."""
+    if slug not in devices: return
+    try:
+        url = f"http://{devices[slug]['ip']}:8080/{action}"
+        requests.get(url, timeout=1.5)
+    except:
+        pass # TV is offline, negeer foutmeldingen in de console
 
 def update_mqtt_state(slug):
     """Update HA status op basis van manual_lock OF schema"""
@@ -73,12 +81,17 @@ def update_mqtt_state(slug):
     mqtt_client.publish(f"kidslock/{slug}/state", state, retain=True)
     
     # Info sensor update
+    resterend = max(0, int(day_cfg['limit']) - s['minutes_used'])
     if is_bedtime: info = "Bedtijd"
     elif effective_lock: info = "Slot"
-    else: info = f"{max(0, int(day_cfg['limit']) - s['minutes_used'])} min"
+    else: info = f"{resterend} min"
     mqtt_client.publish(f"kidslock/{slug}/info", info, retain=True)
 
+# --- MQTT SETUP ---
+mqtt_client = mqtt.Client()
+
 def on_connect(client, userdata, flags, rc):
+    print("INFO: KidsLock MQTT v1.7.0.4 Verbonden")
     for slug in devices:
         client.subscribe(f"kidslock/{slug}/set")
         discovery_payload = {
@@ -105,6 +118,9 @@ def on_message(client, userdata, msg):
         conn.commit()
         conn.close()
         update_mqtt_state(slug)
+        # Direct naar TV sturen
+        action = "lock" if is_on else "unlock"
+        threading.Thread(target=safe_tv_request, args=(slug, action)).start()
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
@@ -124,35 +140,32 @@ def monitor():
             if s["last_reset"] != today_str:
                 s["minutes_used"] = 0
                 s["last_reset"] = today_str
-                conn = sqlite3.connect(DB_PATH)
-                c = conn.cursor()
+                conn = sqlite3.connect(DB_PATH); c = conn.cursor()
                 c.execute("UPDATE devices SET minutes_used = 0, last_reset = ? WHERE slug = ?", (today_str, slug))
-                conn.commit()
-                conn.close()
+                conn.commit(); conn.close()
 
             # 2. Schema check
             day_cfg = s["schedule"].get(day_name, {"limit": 60, "bedtime": "20:00"})
             is_bedtime = now.time() >= datetime.datetime.strptime(day_cfg["bedtime"], "%H:%M").time()
             should_lock = s["manual_lock"] or is_bedtime or (s["minutes_used"] >= int(day_cfg["limit"]))
 
-            # 3. TV API communicatie
+            # 3. TV API communicatie (Silent check)
             try:
-                resp = requests.get(f"http://{s['ip']}:8080/status", timeout=2)
+                resp = requests.get(f"http://{s['ip']}:8080/status", timeout=1.5)
                 s["online"] = True
-                s["locked"] = resp.json().get("locked", False)
+                tv_locked = resp.json().get("locked", False)
+                s["locked"] = tv_locked
                 
-                if should_lock and not s["locked"]:
-                    requests.get(f"http://{s['ip']}:8080/lock", timeout=2)
-                elif not should_lock and s["locked"]:
-                    requests.get(f"http://{s['ip']}:8080/unlock", timeout=2)
+                if should_lock and not tv_locked:
+                    safe_tv_request(slug, "lock")
+                elif not should_lock and tv_locked:
+                    safe_tv_request(slug, "unlock")
                 
-                if s["online"] and not s["locked"]:
+                if s["online"] and not tv_locked:
                     s["minutes_used"] += 1
-                    conn = sqlite3.connect(DB_PATH)
-                    c = conn.cursor()
+                    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
                     c.execute("UPDATE devices SET minutes_used = ? WHERE slug = ?", (s["minutes_used"], slug))
-                    conn.commit()
-                    conn.close()
+                    conn.commit(); conn.close()
             except:
                 s["online"] = False
 
@@ -173,12 +186,16 @@ def toggle_lock(slug):
     if slug in devices:
         new_state = not devices[slug]["manual_lock"]
         devices[slug]["manual_lock"] = new_state
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
         c.execute("UPDATE devices SET manual_lock = ? WHERE slug = ?", (new_state, slug))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
+        
         update_mqtt_state(slug)
+        
+        # Voer uit in thread zodat de Web UI niet hoeft te wachten op offline TV's
+        action = "lock" if new_state else "unlock"
+        threading.Thread(target=safe_tv_request, args=(slug, action)).start()
+        
         return jsonify({"success": True, "locked": new_state})
     return jsonify({"error": "Device not found"}), 404
 
@@ -186,11 +203,9 @@ def toggle_lock(slug):
 def add_time(slug, mins):
     if slug in devices:
         devices[slug]["minutes_used"] = max(0, devices[slug]["minutes_used"] - mins)
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
         c.execute("UPDATE devices SET minutes_used = ? WHERE slug = ?", (devices[slug]["minutes_used"], slug))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
         update_mqtt_state(slug)
         return jsonify({"success": True})
     return jsonify({"error": "Device not found"}), 404
@@ -199,11 +214,9 @@ def add_time(slug, mins):
 def reset_device(slug):
     if slug in devices:
         devices[slug]["minutes_used"] = 0
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
         c.execute("UPDATE devices SET minutes_used = 0 WHERE slug = ?", (slug,))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
         update_mqtt_state(slug)
         return jsonify({"success": True})
     return jsonify({"error": "Device not found"}), 404
