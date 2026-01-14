@@ -47,14 +47,12 @@ def on_connect(client, userdata, flags, rc, properties=None):
                 slug = name.lower().replace(" ", "_")
                 device = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
                 
-                # Discovery: Switch
                 client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
                     "name": "Vergrendeling", "command_topic": f"kidslock/{slug}/set", 
                     "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_switch", 
                     "device": device, "payload_on": "ON", "payload_off": "OFF"
                 }), retain=True)
                 
-                # Discovery: Sensor (met attributen voor tekst-status)
                 client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", json.dumps({
                     "name": "Tijd Resterend", 
                     "state_topic": f"kidslock/{slug}/remaining", 
@@ -63,7 +61,6 @@ def on_connect(client, userdata, flags, rc, properties=None):
                     "unique_id": f"kidslock_{slug}_rem", "device": device, "icon": "mdi:timer-sand"
                 }), retain=True)
 
-                # Discovery: Buttons
                 client.publish(f"homeassistant/button/kidslock_{slug}_add/config", json.dumps({
                     "name": "Voeg 15m toe", "command_topic": f"kidslock/{slug}/add", 
                     "unique_id": f"kidslock_{slug}_btn_add", "device": device, "icon": "mdi:plus-circle"
@@ -105,7 +102,6 @@ try:
     mqtt_client.loop_start()
 except: pass
 
-# --- MONITOR LOOP ---
 def monitor():
     last_tick = time.time()
     days_map = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"]
@@ -144,21 +140,15 @@ def monitor():
                     
                     if should_lock != s["locked"]:
                         action = "lock" if should_lock else "unlock"
-                        try: 
-                            requests.post(f"http://{ip}:8080/{action}", timeout=1)
-                            s["locked"] = should_lock
+                        try: requests.post(f"http://{ip}:8080/{action}", timeout=1); s["locked"] = should_lock
                         except: pass
 
                     slug = name.lower().replace(" ", "_")
                     mqtt_client.publish(f"kidslock/{slug}/state", "ON" if s["locked"] else "OFF")
                     
-                    # --- SMART STATUS & ATTRIBUTES ---
-                    if s["no_limit"]:
-                        val, display = 120, "Onbeperkt"
-                    elif is_past_bedtime:
-                        val, display = 0, "Bedtijd"
-                    else:
-                        val, display = int(s["remaining"]), f"{int(s['remaining'])} min"
+                    if s["no_limit"]: val, display = 120, "Onbeperkt"
+                    elif is_past_bedtime: val, display = 0, "Bedtijd"
+                    else: val, display = int(s["remaining"]), f"{int(s['remaining'])} min"
                     
                     mqtt_client.publish(f"kidslock/{slug}/remaining", str(val))
                     mqtt_client.publish(f"kidslock/{slug}/attributes", json.dumps({"display_status": display}))
@@ -173,7 +163,6 @@ def monitor():
 
 threading.Thread(target=monitor, daemon=True).start()
 
-# --- WEB SERVER ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
@@ -209,4 +198,16 @@ async def api_handler(action: str, name: str, minutes: int = Form(None)):
         if name in tv_states:
             slug = name.lower().replace(" ", "_")
             if action == "add_time": 
-                tv_states[name]["elapsed"] -=
+                tv_states[name]["elapsed"] -= minutes
+            elif action == "reset":
+                with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
+                tv_states[name]["elapsed"] = 0
+            elif action == "toggle_lock": 
+                is_on = not tv_states[name]["manual_lock"]
+                tv_states[name]["manual_lock"] = is_on
+                mqtt_client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
+                threading.Thread(target=lambda: requests.post(f"http://{tv_states[name]['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=1)).start()
+    return JSONResponse({"status": "ok"})
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
