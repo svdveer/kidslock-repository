@@ -41,7 +41,7 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT v1.7.0.9 Verbonden - Discovery Actief")
+        logger.info("MQTT v1.7.1.0 Verbonden - Discovery Actief")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
@@ -54,7 +54,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
                     "device": device, "payload_on": "ON", "payload_off": "OFF"
                 }), retain=True)
                 
-                # Discovery: Sensor
+                # Discovery: Sensor (met display_status attribuut)
                 client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", json.dumps({
                     "name": "Tijd Resterend", 
                     "state_topic": f"kidslock/{slug}/remaining", 
@@ -63,7 +63,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
                     "unique_id": f"kidslock_{slug}_rem", "device": device, "icon": "mdi:timer-sand"
                 }), retain=True)
 
-                # Discovery: Buttons
+                # Discovery: Buttons (+15m en Reset)
                 client.publish(f"homeassistant/button/kidslock_{slug}_add/config", json.dumps({
                     "name": "Voeg 15m toe", "command_topic": f"kidslock/{slug}/add", 
                     "unique_id": f"kidslock_{slug}_btn_add", "device": device, "icon": "mdi:plus-circle"
@@ -91,10 +91,12 @@ def on_message(client, userdata, msg):
                     client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
                 elif action == "add":
                     s["elapsed"] = max(0, s["elapsed"] - 15)
-                    with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (s["elapsed"], name))
+                    with sqlite3.connect(DB_PATH) as c: 
+                        c.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (s["elapsed"], name))
                 elif action == "reset":
                     s["elapsed"] = 0
-                    with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
+                    with sqlite3.connect(DB_PATH) as c: 
+                        c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
@@ -117,7 +119,8 @@ def monitor():
             
             now = datetime.now()
             today_date = now.strftime("%Y-%m-%d")
-            delta = (time.time() - last_tick) / 60.0
+            # Delta fix: voorkom grote sprongen bij opstarten
+            delta = min(1.0, (time.time() - last_tick) / 60.0)
             last_tick = time.time()
             
             with data_lock:
@@ -135,6 +138,7 @@ def monitor():
                     day_cfg = sched.get(days_map[now.weekday()], {"limit": 120, "bedtime": "20:00"})
                     s.update({"limit": float(day_cfg['limit']), "bedtime": day_cfg['bedtime'], "no_limit": int(no_limit)})
                     
+                    # Ping check voor online status
                     res = subprocess.run(['ping', '-c', '1', '-W', '1', ip], stdout=subprocess.DEVNULL)
                     s["online"] = (res.returncode == 0)
                     s["remaining"] = max(0, s['limit'] - s['elapsed'])
@@ -152,13 +156,18 @@ def monitor():
                     slug = name.lower().replace(" ", "_")
                     mqtt_client.publish(f"kidslock/{slug}/state", "ON" if s["locked"] else "OFF")
                     
-                    if s["no_limit"]: val, display = 120, "Onbeperkt"
-                    elif is_past_bedtime: val, display = 0, "Bedtijd"
-                    else: val, display = int(s["remaining"]), f"{int(s['remaining'])} min"
+                    # Status voor Lovelace attributes
+                    if s["no_limit"]:
+                        val, display = 120, "Onbeperkt"
+                    elif is_past_bedtime:
+                        val, display = 0, "Bedtijd"
+                    else:
+                        val, display = int(s["remaining"]), f"{int(s['remaining'])} min"
                     
                     mqtt_client.publish(f"kidslock/{slug}/remaining", str(val))
                     mqtt_client.publish(f"kidslock/{slug}/attributes", json.dumps({"display_status": display}))
 
+                    # Alleen aftellen als TV echt aan staat en niet op slot is
                     if s["online"] and not s["locked"] and not s["no_limit"]:
                         s["elapsed"] += delta
                         with sqlite3.connect(DB_PATH) as c: 
@@ -169,6 +178,7 @@ def monitor():
 
 threading.Thread(target=monitor, daemon=True).start()
 
+# --- WEB SERVER ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
@@ -206,7 +216,8 @@ async def api_handler(action: str, name: str, minutes: int = Form(None)):
             if action == "add_time": 
                 tv_states[name]["elapsed"] -= minutes
             elif action == "reset":
-                with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
+                with sqlite3.connect(DB_PATH) as c: 
+                    c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
                 tv_states[name]["elapsed"] = 0
             elif action == "toggle_lock": 
                 is_on = not tv_states[name]["manual_lock"]

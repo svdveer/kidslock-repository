@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "1.7.0.9"
+version: "1.7.1.0"
 slug: "kidslock-manager"
-description: "v1.7.0.9 - Syntax Fix & Smart Attributes"
+description: "v1.7.1.0 - Definitieve Status Attributes Fix"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
