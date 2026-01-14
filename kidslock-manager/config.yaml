@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
 version: "1.7.0.4"
 slug: "kidslock-manager"
-description: "v1.7.0.4 Hotfix - Dashboard herstel & MQTT Sync"
+description: "v1.7.0.4 Hotfix - Dashboard herstel & Realtime MQTT Sync"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64

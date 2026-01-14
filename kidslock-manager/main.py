@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
-# --- INITIALISATIE ---
+# --- INITIALISATIE & LOGGING ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
@@ -36,7 +36,7 @@ init_db()
 tv_states = {}
 data_lock = threading.RLock()
 
-# --- MQTT CLIENT ---
+# --- MQTT LOGICA ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -67,7 +67,9 @@ def on_message(client, userdata, msg):
                 is_on = (payload == "ON")
                 s["manual_lock"] = is_on
                 action = "lock" if is_on else "unlock"
+                # Direct naar de TV sturen
                 threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{action}", timeout=1)).start()
+                # Bevestig status naar HA
                 client.publish(f"kidslock/{slug}/state", payload, retain=True)
 
 mqtt_client.on_connect = on_connect
@@ -151,9 +153,11 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     with data_lock:
-        # Cruciaal voor het dashboard: stuur 'devices' dictionary
-        devices_dict = {n.lower().replace(" ", "_"): {"name": n, **s} for n, s in tv_states.items()}
-    return templates.TemplateResponse("index.html", {"request": request, "devices": devices_dict})
+        # Hier bouwen we de lijst 'tvs' die jouw index.html exact zo verwacht
+        tvs_list = []
+        for name, s in tv_states.items():
+            tvs_list.append({"name": name, **s})
+    return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs_list})
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_ui(request: Request):
@@ -178,9 +182,9 @@ async def api_handler(action: str, name: str, minutes: int = Form(None)):
             elif action == "toggle_lock": 
                 is_on = not tv_states[name]["manual_lock"]
                 tv_states[name]["manual_lock"] = is_on
-                # Direct naar MQTT voor directe sync
+                # Direct MQTT bericht sturen voor realtime feedback in HA
                 mqtt_client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
-                # Direct naar TV sturen
+                # Directe actie naar de TV
                 threading.Thread(target=lambda: requests.post(f"http://{tv_states[name]['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=1)).start()
     return JSONResponse({"status": "ok"})
 
