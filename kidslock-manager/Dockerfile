@@ -1,8 +1,18 @@
-FROM python:3.11-alpine
-RUN apk add --no-cache iputils sqlite bash
+ARG BUILD_FROM
+FROM $BUILD_FROM
+
+# Installeer Python en benodigde systeempakketten
+RUN apk add --no-update python3 py3-pip
+
+# Installeer de Python bibliotheken die we gebruiken
+RUN pip install --no-cache-dir \
+    flask \
+    requests \
+    paho-mqtt
+
+# Kopieer je code naar de container
+COPY . /app
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-RUN chmod a+x run.sh
-CMD ["python", "main.py"]
+
+# Start het script
+CMD [ "python3", "main.py" ]
