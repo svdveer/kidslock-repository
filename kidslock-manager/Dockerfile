@@ -1,21 +1,8 @@
-ARG BUILD_FROM
-FROM $BUILD_FROM
-
-# Installeer Python en pip
-RUN apk add --no-cache python3 py3-pip
-
-# Installeer FastAPI, Uvicorn en andere benodigdheden
-RUN pip install --no-cache-dir --break-system-packages \
-    fastapi \
-    uvicorn \
-    jinja2 \
-    python-multipart \
-    requests \
-    paho-mqtt
-
-# Kopieer code naar de container
-COPY . /app
+FROM python:3.11-alpine
+RUN apk add --no-cache iputils sqlite bash
 WORKDIR /app
-
-# Start de applicatie
-CMD [ "python3", "main.py" ]
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+RUN chmod a+x run.sh
+CMD ["python", "main.py"]

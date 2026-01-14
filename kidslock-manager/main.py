@@ -26,13 +26,12 @@ tv_states = {}
 data_lock = threading.RLock()
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
-# --- MQTT LOGICA ---
 def on_connect(client, userdata, flags, rc, properties=None):
     with data_lock:
         for name in tv_states:
             slug = name.lower().replace(" ", "_")
             client.subscribe(f"kidslock/{slug}/set")
-            # Discovery voor HA
+            # Discovery voor Home Assistant
             dev = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
             client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
                 "name": "Vergrendeling", "command_topic": f"kidslock/{slug}/set", 
@@ -50,7 +49,6 @@ def on_message(client, userdata, msg):
             if name.lower().replace(" ", "_") == slug and cmd == "set":
                 is_on = (payload == "ON")
                 s["manual_lock"] = is_on
-                # Directe actie naar TV
                 threading.Thread(target=lambda: requests.get(f"http://{s['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=1)).start()
 
 mqtt_client.on_connect = on_connect
@@ -62,26 +60,21 @@ try:
     mqtt_client.loop_start()
 except: pass
 
-# --- MONITOR ---
 def monitor():
     while True:
         try:
             with sqlite3.connect(DB_PATH) as conn:
                 rows = conn.execute("SELECT name, ip, no_limit, elapsed, last_reset, schedule FROM tv_configs").fetchall()
-            
             now = datetime.datetime.now()
             today = now.strftime("%Y-%m-%d")
-            
             with data_lock:
                 for name, ip, no_limit, elapsed, last_reset, sched_json in rows:
                     if last_reset != today:
                         elapsed = 0.0
                         with sqlite3.connect(DB_PATH) as c:
                             c.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ? WHERE name = ?", (today, name))
-                    
                     if name not in tv_states:
                         tv_states[name] = {"ip": ip, "online": False, "locked": False, "manual_lock": False, "elapsed": elapsed}
-                    
                     s = tv_states[name]
                     try:
                         r = requests.get(f"http://{ip}:8080/status", timeout=1).json()
@@ -92,8 +85,6 @@ def monitor():
                             with sqlite3.connect(DB_PATH) as c:
                                 c.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (s["elapsed"], name))
                     except: s["online"] = False
-
-                    # Regelmatige MQTT Sync
                     slug = name.lower().replace(" ", "_")
                     mqtt_client.publish(f"kidslock/{slug}/state", "ON" if s["locked"] else "OFF", retain=True)
         except Exception as e: print(f"Monitor error: {e}")
@@ -101,13 +92,12 @@ def monitor():
 
 threading.Thread(target=monitor, daemon=True).start()
 
-# --- WEB UI ---
 app = FastAPI()
 
 STYLE = """<style>
     body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
-    .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    .btn { padding: 12px 24px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block; }
+    .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 20px; text-align: center; }
+    .btn { padding: 12px 24px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; text-decoration: none; }
     .btn-primary { background: #007bff; color: white; }
     .btn-danger { background: #dc3545; color: white; }
     .btn-success { background: #28a745; color: white; }
@@ -121,7 +111,7 @@ async def index():
         for name, s in tv_states.items():
             cls = "btn-danger" if s['locked'] else "btn-success"
             txt = "ONTGRENDELEN" if s['locked'] else "VERGRENDELEN"
-            html += f"""<div class='card text-center'>
+            html += f"""<div class='card'>
                 <h2>{name}</h2>
                 <div class='timer'>{int(s['elapsed'])} min</div>
                 <div style='margin-top:15px;'>
@@ -137,7 +127,6 @@ async def toggle(name: str):
         if name in tv_states:
             s = tv_states[name]
             s["manual_lock"] = not s["manual_lock"]
-            # REALTIME MQTT PUSH
             slug = name.lower().replace(" ", "_")
             mqtt_client.publish(f"kidslock/{slug}/state", "ON" if s["manual_lock"] else "OFF", retain=True)
             threading.Thread(target=lambda: requests.get(f"http://{s['ip']}:8080/{'lock' if s['manual_lock'] else 'unlock'}", timeout=1)).start()
