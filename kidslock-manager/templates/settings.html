@@ -10,12 +10,13 @@
         .day-box label { display: block; font-size: 0.75rem; color: #888; text-transform: uppercase; margin-bottom: 5px; }
         .day-box input { background: transparent; border: none; color: #03a9f4; text-align: center; font-weight: bold; width: 100%; font-size: 1.1rem; }
         .form-control-ha { background: #252525; border: 1px solid #444; color: #fff; }
+        .manual-box { border-top: 1px solid #333; margin-top: 20px; padding-top: 20px; }
     </style>
 </head>
 <body>
     <div class="container" style="max-width: 900px;">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2>⚙️ Instellingen</h2>
+            <h2>⚙️ KidsLock Instellingen</h2>
             <a href="./" class="btn btn-outline-light">Terug</a>
         </div>
 
@@ -52,9 +53,25 @@
         </div>
         {% endfor %}
         
-        <div class="card text-center py-5">
-             <button class="btn btn-primary px-5" onclick="scan()" id="sBtn">Zoek Nieuwe TV's</button>
-             <div id="results" class="mt-4"></div>
+        <div class="card">
+            <h5 class="mb-3 text-center">Nieuwe TV Koppelen</h5>
+            <div class="d-grid gap-2">
+                <button class="btn btn-primary" onclick="scan()" id="sBtn">Netwerk Scannen</button>
+            </div>
+            
+            <div id="results" class="mt-3"></div>
+
+            <div class="manual-box">
+                <p class="small text-muted mb-2 text-center">Of voeg handmatig toe:</p>
+                <div class="row g-2">
+                    <div class="col-8">
+                        <input type="text" id="manual_ip" class="form-control form-control-ha" placeholder="IP-adres (bijv. 192.168.1.50)">
+                    </div>
+                    <div class="col-4">
+                        <button class="btn btn-outline-info w-100" onclick="pair(document.getElementById('manual_ip').value)">Koppel</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -70,8 +87,9 @@
             fetch('./api/update_tv', {method:'POST', body:fd}).then(() => location.reload());
         }
         function del(n) { if(confirm('Wissen?')) fetch('./api/delete_tv/'+n, {method:'POST'}).then(() => location.reload()); }
+        
         function scan() {
-            const b = document.getElementById('sBtn'); b.disabled = true; b.innerText = "Bezig...";
+            const b = document.getElementById('sBtn'); b.disabled = true; b.innerText = "Zoeken...";
             fetch('./api/discover').then(r => r.json()).then(data => {
                 let h = "";
                 data.forEach(d => {
@@ -80,15 +98,17 @@
                         <button class="btn btn-sm btn-success" onclick="pair('${d.ip}')">Koppel</button>
                     </div>`;
                 });
-                document.getElementById('results').innerHTML = h || "Geen TV's gevonden.";
-            }).finally(() => { b.disabled = false; b.innerText = "Zoek Nieuwe TV's"; });
+                document.getElementById('results').innerHTML = h || '<div class="text-center p-2">Geen TV\'s gevonden.</div>';
+            }).finally(() => { b.disabled = false; b.innerText = "Netwerk Scannen"; });
         }
+
         function pair(ip) {
-            const code = prompt("Voer de koppelcode in van de TV:");
+            if(!ip) return alert("Vul een IP-adres in");
+            const code = prompt("Voer de koppelcode in die op de TV verschijnt:");
             if(!code) return;
             const fd = new FormData(); fd.append('ip', ip); fd.append('code', code);
             fetch('./api/pair_with_device', {method:'POST', body:fd}).then(r => r.json()).then(res => {
-                if(res.status==='success') location.reload(); else alert('Fout!');
+                if(res.status==='success') location.reload(); else alert('Koppeling mislukt!');
             });
         }
     </script>
