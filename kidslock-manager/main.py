@@ -6,12 +6,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
-# --- INITIALISATIE & LOGGING ---
+# --- INITIALISATIE ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
 
-# --- MQTT CONFIGURATIE ---
 MQTT_HOST = os.getenv("MQTT_HOST", "core-mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 MQTT_USER = os.getenv("MQTT_USER", "")
@@ -122,14 +121,19 @@ async def settings_ui(request: Request):
     return templates.TemplateResponse("settings.html", {"request": request, "tvs": tvs})
 
 @app.post("/api/update_tv")
-async def update_tv(old_name: str = Form(...), new_name: str = Form(...), no_limit: int = Form(...),
-                    mon: int = Form(...), tue: int = Form(...), wed: int = Form(...), 
-                    thu: int = Form(...), fri: int = Form(...), sat: int = Form(...), sun: int = Form(...)):
+async def update_tv(old_name: str = Form(...), new_name: str = Form(...), no_limit: str = Form(...),
+                    mon: str = Form(...), tue: str = Form(...), wed: str = Form(...), 
+                    thu: str = Form(...), fri: str = Form(...), sat: str = Form(...), sun: str = Form(...)):
     try:
+        # Conversie binnen Python om 422 errors bij request validatie te voorkomen
+        nl = 1 if no_limit == "1" else 0
+        m, t, w = int(mon), int(tue), int(wed)
+        th, f, sa, su = int(thu), int(fri), int(sat), int(sun)
+
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.execute("""UPDATE tv_configs SET name=?, no_limit=?, 
                             mon_lim=?, tue_lim=?, wed_lim=?, thu_lim=?, fri_lim=?, sat_lim=?, sun_lim=? 
-                            WHERE name=?""", (new_name, no_limit, mon, tue, wed, thu, fri, sat, sun, old_name))
+                            WHERE name=?""", (new_name, nl, m, t, w, th, f, sa, su, old_name))
             conn.commit()
         publish_discovery()
         return {"status": "ok"}

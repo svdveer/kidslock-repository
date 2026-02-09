@@ -81,40 +81,43 @@
     <script>
         function save(idx, old) {
             const btn = document.getElementById('btn_save_' + idx);
+            const originalText = btn.innerText;
             btn.innerText = "Bezig...";
             btn.disabled = true;
 
             const fd = new FormData();
             fd.append('old_name', old);
             fd.append('new_name', document.getElementById('name_' + idx).value);
-            fd.append('no_limit', document.getElementById('unl_' + idx).checked ? 1 : 0);
+            fd.append('no_limit', document.getElementById('unl_' + idx).checked ? "1" : "0");
             
-            // Namen moeten exact matchen met de @app.post argumenten
-            fd.append('mon', document.getElementById('mon_' + idx).value);
-            fd.append('tue', document.getElementById('tue_' + idx).value);
-            fd.append('wed', document.getElementById('wed_' + idx).value);
-            fd.append('thu', document.getElementById('thu_' + idx).value);
-            fd.append('fri', document.getElementById('fri_' + idx).value);
-            fd.append('sat', document.getElementById('sat_' + idx).value);
-            fd.append('sun', document.getElementById('sun_' + idx).value);
+            // Expliciet ophalen van waarden als string om 422 errors te voorkomen
+            const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+            days.forEach(day => {
+                const val = document.getElementById(day + '_' + idx).value || "120";
+                fd.append(day, val.toString());
+            });
 
             fetch('./api/update_tv', { method: 'POST', body: fd })
                 .then(r => r.json())
-                .then(res => {
-                    if (res.status === 'ok') {
+                .then(data => {
+                    if (data.status === 'ok') {
                         btn.innerText = "Opgeslagen!";
-                        setTimeout(() => location.reload(), 800);
+                        btn.classList.replace('btn-success', 'btn-outline-success');
+                        setTimeout(() => location.reload(), 1000);
                     } else {
-                        alert("Fout bij opslaan!");
-                        btn.disabled = false;
-                        btn.innerText = "Opslaan";
+                        alert("Fout: " + data.message);
+                        resetBtn(btn, originalText);
                     }
                 })
-                .catch(() => {
-                    alert("Netwerkfout!");
-                    btn.disabled = false;
-                    btn.innerText = "Opslaan";
+                .catch(err => {
+                    alert("Netwerkfout bij opslaan!");
+                    resetBtn(btn, originalText);
                 });
+        }
+
+        function resetBtn(btn, text) {
+            btn.disabled = false;
+            btn.innerText = text;
         }
 
         function del(n) { if(confirm('Wissen?')) fetch('./api/delete_tv/'+n, {method:'POST'}).then(() => location.reload()); }
