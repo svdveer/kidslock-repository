@@ -1,78 +1,60 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KidsLock Manager - Instellingen</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background-color: #f4f7f6; padding-top: 30px; font-family: sans-serif; }
-        .card { border: none; border-radius: 15px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); margin-bottom: 25px; }
-        .pairing-code { font-size: 3.5rem; letter-spacing: 10px; color: #28a745; font-family: monospace; }
-        .btn-primary { background-color: #4a90e2; border: none; }
-        .btn-success { background-color: #28a745; border: none; padding: 12px 25px; }
-    </style>
+    <style> body { background: #f8f9fa; padding: 20px; } .card { border-radius: 15px; } </style>
 </head>
 <body>
     <div class="container">
-        <div class="d-flex justify-content-between align-items-center mb-5">
-            <h1 class="fw-bold text-dark">KidsLock Settings</h1>
-            <a href="/" class="btn btn-outline-secondary">Dashboard</a>
+        <h2 class="mb-4">KidsLock Setup</h2>
+
+        <div class="card p-4 shadow-sm mb-4 border-primary">
+            <h4>🔍 Zoek TV's</h4>
+            <p class="text-muted">Open de app op de TV en klik hieronder op scan.</p>
+            <button class="btn btn-primary w-100" onclick="scan()" id="sBtn">Scan Netwerk</button>
+            <div id="results" class="mt-3"></div>
         </div>
 
-        <div class="card p-4 border-start border-success border-4">
-            <h3 class="fw-bold">📱 Nieuw Apparaat Koppelen</h3>
-            <p class="text-muted">Klik op de knop en voer de code in op de Android app. Het profiel wordt automatisch aangemaakt.</p>
-            
-            <button class="btn btn-success fw-bold" onclick="generateCode()">GENEREER KOPPELCODE</button>
-
-            <div id="pairing_result" class="text-center mt-4 d-none">
-                <p class="text-uppercase small fw-bold text-muted mb-0">Voer deze code in op de tablet/TV:</p>
-                <div id="pairing_display" class="pairing-code fw-bold my-2">000000</div>
-                <p class="text-danger small">Code is 5 minuten geldig.</p>
-            </div>
-        </div>
-
-        <div class="card p-4">
-            <h3 class="fw-bold mb-4">📺 Beheer Apparaten</h3>
+        <div class="card p-4 shadow-sm">
+            <h4>📺 Gekoppelde Apparaten</h4>
             <div id="tv_list">
                 {% for tv in tvs %}
-                <div class="d-flex justify-content-between align-items-center border-bottom py-3">
-                    <div>
-                        <h5 class="mb-0 fw-bold">{{ tv.name }}</h5>
-                        <small class="text-muted">IP: {{ tv.ip }} | Limiet: {{ tv.no_limit == 1 and 'Uit' or 'Aan' }}</small>
-                    </div>
-                    <button class="btn btn-sm btn-danger" onclick="deleteTv('{{ tv.name }}')">Verwijder</button>
+                <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+                    <span><strong>{{ tv.name }}</strong> ({{ tv.ip }})</span>
+                    <button class="btn btn-sm btn-outline-danger" onclick="del('{{ tv.name }}')">Verwijder</button>
                 </div>
                 {% endfor %}
             </div>
         </div>
     </div>
 
-   <script>
-    function generateCode() {
-        // Gebruik './' om te zorgen dat het pad altijd relatief is aan de huidige URL
-        fetch('./api/get_general_pairing_code')
-            .then(res => {
-                if (!res.ok) throw new Error('Server antwoordde niet goed');
-                return res.json();
-            })
-            .then(data => {
-                document.getElementById('pairing_display').innerText = data.code;
-                document.getElementById('pairing_result').classList.remove('d-none');
-            })
-            .catch(err => {
-                console.error('Pairing error:', err);
-                alert('Fout bij verbinden met server. Check de add-on logs.');
-            });
-    }
-
-    function deleteTv(name) {
-        if(confirm('Apparaat ' + name + ' verwijderen?')) {
-            fetch('./api/delete_tv/' + name, { method: 'POST' })
-                .then(() => location.reload());
+    <script>
+        function scan() {
+            const b = document.getElementById('sBtn'); b.disabled = true; b.innerText = "Bezig...";
+            fetch('./api/discover').then(r => r.json()).then(data => {
+                let h = "";
+                data.forEach(d => {
+                    h += `<div class="alert alert-info d-flex justify-content-between align-items-center">
+                        <span>${d.name} (${d.ip})</span>
+                        <div class="d-flex gap-2">
+                            <input type="text" id="c_${d.ip.replace(/\./g,'_')}" class="form-control form-control-sm" placeholder="Code" style="width:80px;">
+                            <button class="btn btn-sm btn-success" onclick="pair('${d.ip}')">Koppel</button>
+                        </div>
+                    </div>`;
+                });
+                document.getElementById('results').innerHTML = h || "Geen TV's gevonden.";
+            }).finally(() => { b.disabled = false; b.innerText = "Scan Netwerk"; });
         }
-    }
-</script>
+
+        function pair(ip) {
+            const c = document.getElementById('c_' + ip.replace(/\./g,'_')).value;
+            const fd = new FormData(); fd.append('ip', ip); fd.append('code', c);
+            fetch('./api/pair_with_device', {method:'POST', body:fd}).then(r => r.json()).then(res => {
+                if(res.status==='success') { alert('Gelukt!'); location.reload(); } else { alert('Fout!'); }
+            });
+        }
+
+        function del(n) { if(confirm('Verwijderen?')) fetch('./api/delete_tv/'+n, {method:'POST'}).then(() => location.reload()); }
+    </script>
 </body>
 </html>
