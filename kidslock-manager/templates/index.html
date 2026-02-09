@@ -3,73 +3,75 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KidsLock Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #0d1117; color: #c9d1d9; padding: 20px; font-family: sans-serif; }
-        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; margin-bottom: 20px; }
-        .btn-action { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 0.85rem; padding: 8px; transition: 0.2s; }
-        .btn-action:hover { background: #30363d; color: white; border-color: #58a6ff; }
-        .text-primary { color: #58a6ff !important; }
-        .progress { height: 8px; background-color: #30363d; margin-bottom: 15px; }
-        .progress-bar { background-color: #238636; }
+        :root { --ha-blue: #03a9f4; --ha-card: #1c1c1c; --bg: #111; }
+        body { background: var(--bg); color: #e1e1e1; font-family: 'Segoe UI', Roboto, sans-serif; padding: 20px; }
+        .tv-card { background: var(--ha-card); border-radius: 16px; border: 1px solid #333; padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); transition: 0.3s; margin-bottom: 20px; }
+        .tv-card:hover { border-color: var(--ha-blue); transform: translateY(-2px); }
+        .timer-display { font-size: 2.5rem; font-weight: 700; color: var(--ha-blue); text-shadow: 0 0 20px rgba(3,169,244,0.3); }
+        .progress { height: 10px; background: #333; border-radius: 5px; margin: 15px 0; }
+        .progress-bar { background: linear-gradient(90deg, #4caf50, #8bc34a); border-radius: 5px; }
+        .btn-ha { background: #2c2c2c; border: 1px solid #444; color: #fff; border-radius: 10px; padding: 10px; font-size: 0.9rem; transition: 0.2s; }
+        .btn-ha:hover { background: #3d3d3d; border-color: #666; }
+        .btn-danger-ha { color: #ff5252; border-color: #5a2d2d; }
+        .remote-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 12px; }
     </style>
 </head>
 <body>
-    <div class="container" style="max-width: 900px;">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2 class="fw-bold"><span class="text-primary">Kids</span>Lock Dashboard</h2>
-            <a href="./settings" class="btn btn-outline-secondary btn-sm">⚙️ Instellingen</a>
+    <div class="container" style="max-width: 1000px;">
+        <div class="d-flex justify-content-between align-items-center mb-5">
+            <h1 class="fw-bold m-0"><span style="color:var(--ha-blue)">Kids</span>Lock Pro</h1>
+            <a href="./settings" class="btn btn-ha">⚙️ Instellingen</a>
         </div>
-        
         <div class="row">
             {% for tv in tvs %}
             <div class="col-md-6">
-                <div class="card p-4">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <h4 class="m-0 fw-bold">{{ tv.name }}</h4>
-                        <span class="badge bg-dark text-muted border border-secondary">{{ tv.ip }}</span>
+                <div class="tv-card">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div><h3 class="m-0 fw-bold">{{ tv.name }}</h3><small class="text-muted">{{ tv.ip }}</small></div>
+                        <span class="badge {{ 'bg-success' if tv.remaining > 0 else 'bg-danger' }}">
+                            {{ 'Unlimited' if tv.no_limit else 'Active' }}
+                        </span>
                     </div>
-                    
-                    <div class="text-center py-4 mb-3 rounded-3" style="background: #0d1117;">
-                        <span class="d-block small text-uppercase text-muted mb-1">Resterende Tijd</span>
-                        <span class="display-5 fw-bold text-primary">{{ '∞' if tv.no_limit else (tv.remaining|string + 'm') }}</span>
+                    <div class="text-center py-4">
+                        <div class="timer-display">{{ '∞' if tv.no_limit else (tv.remaining|string + 'm') }}</div>
+                        <div class="small text-muted text-uppercase mt-1">Resterende Tijd</div>
                     </div>
-
                     <div class="progress">
                         {% set perc = (tv.elapsed / tv.limit * 100) if tv.limit > 0 else 0 %}
-                        <div class="progress-bar" role="progressbar" style="width: {{ perc }}%"></div>
+                        <div class="progress-bar" style="width: {{ perc }}%"></div>
                     </div>
-                    <div class="d-flex justify-content-between small text-muted mb-4">
+                    <div class="d-flex justify-content-between mb-4 small text-muted">
                         <span>Verbruikt: {{ tv.elapsed }}m</span>
-                        <span>Limiet: {{ tv.limit }}m</span>
+                        <span>Vandaag Limiet: {{ tv.limit }}m</span>
                     </div>
-
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-action w-100" onclick="act('{{ tv.ip }}', 'lock')">🔒 Lock</button>
-                        <button class="btn btn-action w-100" onclick="act('{{ tv.ip }}', 'unlock')">🔓 Unlock</button>
-                        <button class="btn btn-action w-100" onclick="act('{{ tv.ip }}', 'reset')">🔄 Reset</button>
+                    <div class="row g-2 mb-3">
+                        <div class="col-4"><button class="btn btn-ha w-100" onclick="act('{{ tv.ip }}','lock')">🔒 Lock</button></div>
+                        <div class="col-4"><button class="btn btn-ha w-100" onclick="act('{{ tv.ip }}','unlock')">🔓 Unlock</button></div>
+                        <div class="col-4"><button class="btn btn-ha btn-danger-ha w-100" onclick="act('{{ tv.ip }}','reset')">🔄 Reset</button></div>
+                    </div>
+                    <div class="remote-grid">
+                        <button class="btn btn-ha btn-sm" onclick="remote('{{ tv.ip }}','POWER_ON','{{ tv.name }}')">ON</button>
+                        <button class="btn btn-ha btn-sm" onclick="remote('{{ tv.ip }}','HOME','{{ tv.name }}')">🏠</button>
+                        <button class="btn btn-ha btn-sm btn-danger-ha" onclick="remote('{{ tv.ip }}','POWER_OFF','{{ tv.name }}')">OFF</button>
+                        <button class="btn btn-ha btn-sm" onclick="remote('{{ tv.ip }}','VOL_UP','{{ tv.name }}')">🔊+</button>
+                        <button class="btn btn-ha btn-sm" onclick="remote('{{ tv.ip }}','MUTE','{{ tv.name }}')">🔇</button>
+                        <button class="btn btn-ha btn-sm" onclick="remote('{{ tv.ip }}','VOL_DOWN','{{ tv.name }}')">🔉-</button>
                     </div>
                 </div>
             </div>
             {% endfor %}
-            {% if not tvs %}
-                <div class="col-12 text-center py-5">
-                    <p class="text-muted">Nog geen apparaten gekoppeld. Ga naar instellingen.</p>
-                </div>
-            {% endif %}
         </div>
     </div>
     <script>
         function act(ip, a) {
-            const fd = new FormData();
-            fd.append('ip', ip);
-            fd.append('action', a);
-            fetch('./api/tv_action', {method:'POST', body:fd})
-                .then(r => r.json())
-                .then(res => {
-                    if(a === 'reset' || res.status === 'ok') location.reload();
-                });
+            const fd = new FormData(); fd.append('ip', ip); fd.append('action', a);
+            fetch('./api/tv_action', {method:'POST', body:fd}).then(() => location.reload());
+        }
+        function remote(ip, k, n) {
+            const fd = new FormData(); fd.append('ip', ip); fd.append('key', k); fd.append('name', n);
+            fetch('./api/remote_control', {method:'POST', body:fd});
         }
     </script>
 </body>
