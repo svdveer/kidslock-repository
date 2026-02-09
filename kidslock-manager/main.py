@@ -20,14 +20,12 @@ mqtt_conf = options.get("mqtt", {})
 MQTT_HOST = mqtt_conf.get("host", "core-mosquitto")
 MQTT_PORT = mqtt_conf.get("port", 1883)
 
-# --- DATABASE V2.0 SCHEMA ---
+# --- DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    # TV Config (Legacy & Base)
     conn.execute('''CREATE TABLE IF NOT EXISTS tv_configs 
                     (name TEXT PRIMARY KEY, ip TEXT, no_limit INTEGER DEFAULT 0, 
                      elapsed REAL DEFAULT 0, last_reset TEXT, schedule TEXT)''')
-    # Pairing tabel voor Android App
     conn.execute('''CREATE TABLE IF NOT EXISTS paired_devices 
                     (device_id TEXT PRIMARY KEY, name TEXT, pairing_code TEXT, 
                      api_key TEXT, last_seen TEXT, status TEXT, current_app TEXT)''')
@@ -43,34 +41,21 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT v2.0.0.1 Verbonden")
+        logger.info("MQTT v2.0.0.3 Verbonden")
         with data_lock:
             for name in tv_states:
                 slug = name.lower().replace(" ", "_")
                 device = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}"}
                 
-                # Discovery: Switch
+                # Discovery: Switch & Sensor
                 client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
                     "name": "Vergrendeling", "command_topic": f"kidslock/{slug}/set", 
                     "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_switch", "device": device
                 }), retain=True)
-                
-                # Discovery: Sensor
                 client.publish(f"homeassistant/sensor/kidslock_{slug}_rem/config", json.dumps({
                     "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", 
                     "json_attributes_topic": f"kidslock/{slug}/attributes", "unit_of_measurement": "min",
                     "unique_id": f"kidslock_{slug}_rem", "device": device
-                }), retain=True)
-
-                # Discovery: Buttons
-                client.publish(f"homeassistant/button/kidslock_{slug}_add/config", json.dumps({
-                    "name": "Voeg 15m toe", "command_topic": f"kidslock/{slug}/add", 
-                    "unique_id": f"kidslock_{slug}_btn_add", "device": device, "icon": "mdi:plus-circle"
-                }), retain=True)
-
-                client.publish(f"homeassistant/button/kidslock_{slug}_reset/config", json.dumps({
-                    "name": "Reset Dag", "command_topic": f"kidslock/{slug}/reset", 
-                    "unique_id": f"kidslock_{slug}_btn_reset", "device": device, "icon": "mdi:refresh"
                 }), retain=True)
                 client.subscribe(f"kidslock/{slug}/#")
 
@@ -85,9 +70,6 @@ def on_message(client, userdata, msg):
                     is_on = (msg.payload.decode().upper() == "ON")
                     s["manual_lock"] = is_on
                     threading.Thread(target=lambda: requests.post(f"http://{s['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=2)).start()
-                elif action == "add":
-                    with sqlite3.connect(DB_PATH) as c:
-                        c.execute("UPDATE tv_configs SET elapsed = max(0, elapsed - 15) WHERE name = ?", (name,))
                 elif action == "reset":
                     with sqlite3.connect(DB_PATH) as c:
                         c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
@@ -132,11 +114,12 @@ def monitor():
                     sched = json.loads(sched_json) if sched_json else {"Maandag": {"limit": 120, "bedtime": "20:00"}}
                     day_cfg = sched.get(days_map[now.weekday()], {"limit": 120, "bedtime": "20:00"})
                     
+                    # Check status via Ping (fallback)
                     res = subprocess.run(['ping', '-c', '1', '-W', '1', ip], stdout=subprocess.DEVNULL)
                     s["online"] = (res.returncode == 0)
-                    s["remaining"] = max(0, float(day_cfg['limit']) - s['elapsed'])
+                    s["remaining"] = max(0, float(day_cfg.get('limit', 120)) - s['elapsed'])
                     
-                    is_past_bedtime = now.strftime("%H:%M") >= day_cfg['bedtime']
+                    is_past_bedtime = now.strftime("%H:%M") >= day_cfg.get('bedtime', "20:00")
                     should_lock = s["manual_lock"] or is_past_bedtime or (not no_limit and s["remaining"] <= 0)
                     
                     if should_lock != s["locked"]:
@@ -169,56 +152,46 @@ async def home(request: Request):
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_ui(request: Request):
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT name, ip, no_limit, schedule FROM tv_configs").fetchall()
-    conn.close()
-    processed_tvs = [{"name": r[0], "ip": r[1], "no_limit": r[2], "schedule": json.loads(r[3]) if r[3] else {"Maandag": {"limit": 120, "bedtime": "20:00"}}} for r in rows]
+    conn = sqlite3.connect(DB_PATH); rows = conn.execute("SELECT name, ip, no_limit, schedule FROM tv_configs").fetchall(); conn.close()
+    processed_tvs = [{"name": r[0], "ip": r[1], "no_limit": r[2], "schedule": json.loads(r[3]) if r[3] else {}} for r in rows]
     return templates.TemplateResponse("settings.html", {"request": request, "tvs": processed_tvs})
 
-@app.get("/api/get_pairing_code/{name}")
-async def get_pairing_code(name: str):
+@app.get("/api/get_general_pairing_code")
+async def get_general_code():
     code = "".join(secrets.choice("0123456789") for i in range(6))
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("INSERT OR REPLACE INTO paired_devices (device_id, name, pairing_code, status) VALUES (?, ?, ?, ?)", 
-                     (f"pending_{name}", name, code, "pairing"))
+        conn.execute("INSERT OR REPLACE INTO paired_devices (device_id, name, pairing_code, status) VALUES (?, ?, ?, ?)", ("GLOBAL_PAIR", "Pending", code, "pairing"))
     return JSONResponse({"code": code})
 
 @app.post("/api/pair")
-async def pair_device(device_id: str = Form(...), code: str = Form(...), device_name: str = Form(...)):
+async def pair_device(request: Request, device_id: str = Form(...), code: str = Form(...), device_name: str = Form(...)):
+    client_ip = request.client.host
     with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute("SELECT name FROM paired_devices WHERE pairing_code = ? AND status = 'pairing'", (code,)).fetchone()
+        row = conn.execute("SELECT pairing_code FROM paired_devices WHERE device_id = 'GLOBAL_PAIR' AND pairing_code = ?", (code,)).fetchone()
         if row:
             api_key = secrets.token_hex(16)
-            conn.execute("DELETE FROM paired_devices WHERE device_id = ?", (f"pending_{row[0]}",))
-            conn.execute("INSERT OR REPLACE INTO paired_devices (device_id, name, api_key, status, last_seen) VALUES (?, ?, ?, ?, ?)",
-                         (device_id, device_name, api_key, "active", datetime.now().isoformat()))
+            conn.execute("INSERT OR REPLACE INTO paired_devices (device_id, name, api_key, status, last_seen) VALUES (?, ?, ?, ?, ?)", (device_id, device_name, api_key, "active", datetime.now().isoformat()))
+            conn.execute("INSERT OR IGNORE INTO tv_configs (name, ip, no_limit, elapsed, last_reset, schedule) VALUES (?, ?, ?, ?, ?, ?)", (device_name, client_ip, 0, 0, datetime.now().strftime("%Y-%m-%d"), "{}"))
             return JSONResponse({"status": "paired", "api_key": api_key})
     return JSONResponse({"status": "error", "message": "Code ongeldig"}, status_code=400)
 
+@app.post("/api/heartbeat")
+async def heartbeat(device_id: str = Form(...), api_key: str = Form(...), current_app: str = Form("unknown")):
+    with sqlite3.connect(DB_PATH) as conn:
+        device = conn.execute("SELECT name FROM paired_devices WHERE device_id = ? AND api_key = ?", (device_id, api_key)).fetchone()
+        if device:
+            conn.execute("UPDATE paired_devices SET last_seen = ?, current_app = ? WHERE device_id = ?", (datetime.now().isoformat(), current_app, device_id))
+            return JSONResponse({"status": "ok"})
+    return JSONResponse({"status": "unauthorized"}, status_code=401)
+
 @app.post("/api/save_tv")
 async def save_tv(name: str = Form(...), ip: str = Form(...), no_limit: int = Form(...), schedule: str = Form(...)):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, no_limit, schedule) VALUES (?, ?, ?, ?)", (name, ip, no_limit, schedule))
+    with sqlite3.connect(DB_PATH) as conn: conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, no_limit, schedule) VALUES (?, ?, ?, ?)", (name, ip, no_limit, schedule))
     return JSONResponse({"status": "ok"})
 
 @app.post("/api/delete_tv/{name}")
 async def delete_tv(name: str):
     with sqlite3.connect(DB_PATH) as conn: conn.execute("DELETE FROM tv_configs WHERE name = ?", (name,))
-    return JSONResponse({"status": "ok"})
-
-@app.post("/api/{action}/{name}")
-async def api_handler(action: str, name: str, minutes: int = Form(None)):
-    with data_lock:
-        if name in tv_states:
-            if action == "add_time":
-                with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = max(0, elapsed - ?) WHERE name = ?", (minutes, name))
-            elif action == "reset":
-                with sqlite3.connect(DB_PATH) as c: c.execute("UPDATE tv_configs SET elapsed = 0 WHERE name = ?", (name,))
-            elif action == "toggle_lock": 
-                is_on = not tv_states[name]["manual_lock"]; tv_states[name]["manual_lock"] = is_on
-                slug = name.lower().replace(" ", "_")
-                mqtt_client.publish(f"kidslock/{slug}/state", "ON" if is_on else "OFF", retain=True)
-                threading.Thread(target=lambda: requests.post(f"http://{tv_states[name]['ip']}:8080/{'lock' if is_on else 'unlock'}", timeout=1)).start()
     return JSONResponse({"status": "ok"})
 
 if __name__ == "__main__":
