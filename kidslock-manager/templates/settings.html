@@ -4,27 +4,26 @@
     <meta charset="UTF-8">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #0d1117; color: #c9d1d9; padding: 20px; }
-        .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 12px; }
-        .nav-tabs { border-bottom: 1px solid #30363d; }
+        body { background: #0d1117; color: #c9d1d9; padding: 20px; font-family: sans-serif; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; margin-bottom: 25px; }
+        .form-control { background: #0d1117; border: 1px solid #30363d; color: white; }
+        .form-control:focus { background: #0d1117; color: white; border-color: #58a6ff; box-shadow: none; }
         .nav-link { color: #8b949e; border: none !important; }
         .nav-link.active { background: none !important; color: #58a6ff !important; border-bottom: 2px solid #58a6ff !important; }
-        .form-control { background-color: #0d1117; border: 1px solid #30363d; color: white; }
-        .form-control:focus { background-color: #0d1117; color: white; border-color: #58a6ff; box-shadow: none; }
-        .btn-success { background-color: #238636; border: none; }
-        .device-row { border-bottom: 1px solid #30363d; padding: 15px 0; }
+        .device-card { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 15px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
-    <div class="container" style="max-width: 700px;">
+    <div class="container" style="max-width: 800px;">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h3 class="fw-bold">⚙️ Instellingen</h3>
-            <a href="./" class="btn btn-sm btn-outline-light">Terug naar Dashboard</a>
+            <h2 class="fw-bold">⚙️ KidsLock Beheer</h2>
+            <a href="./" class="btn btn-outline-light btn-sm">Terug naar Dashboard</a>
         </div>
 
-        <div class="card p-4 mb-4">
-            <ul class="nav nav-tabs mb-4" id="setupTabs" role="tablist">
-                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#scan-pane">Automatisch Scannen</button></li>
+        <div class="card p-4">
+            <h5 class="mb-4">Nieuwe TV Koppelen</h5>
+            <ul class="nav nav-tabs mb-4" role="tablist">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#scan-pane">Scanner</button></li>
                 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#manual-pane">Handmatig IP</button></li>
             </ul>
 
@@ -33,7 +32,6 @@
                     <button class="btn btn-primary w-100" onclick="scan()" id="sBtn">Zoek apparaten in netwerk</button>
                     <div id="results" class="mt-3"></div>
                 </div>
-
                 <div class="tab-pane fade" id="manual-pane">
                     <div class="row g-2">
                         <div class="col-8"><input type="text" id="m_ip" class="form-control" placeholder="IP (bijv. 192.168.2.50)"></div>
@@ -45,11 +43,28 @@
         </div>
 
         <div class="card p-4">
-            <h5 class="mb-3">Gekoppelde Apparaten</h5>
+            <h5 class="mb-3">Gekoppelde Apparaten Wijzigen</h5>
             {% for tv in tvs %}
-            <div class="d-flex justify-content-between align-items-center device-row">
-                <div><strong>{{ tv.name }}</strong><br><small class="text-muted">{{ tv.ip }}</small></div>
-                <button class="btn btn-sm btn-outline-danger" onclick="del('{{ tv.name }}')">Verwijderen</button>
+            <div class="device-card">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label class="small text-muted mb-1">Naam</label>
+                        <input type="text" id="n_{{ loop.index }}" class="form-control form-control-sm" value="{{ tv.name }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="small text-muted mb-1">Limiet (min)</label>
+                        <input type="number" id="l_{{ loop.index }}" class="form-control form-control-sm" value="{{ tv.limit }}">
+                    </div>
+                    <div class="col-md-2 text-center">
+                        <label class="small text-muted mb-1 d-block">Unlimited</label>
+                        <input type="checkbox" id="u_{{ loop.index }}" class="form-check-input" {% if tv.no_limit %}checked{% endif %}>
+                    </div>
+                    <div class="col-md-3 text-end">
+                        <button class="btn btn-sm btn-success" onclick="save('{{ tv.name }}', {{ loop.index }})">Opslaan</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="del('{{ tv.name }}')">Wissen</button>
+                    </div>
+                </div>
+                <small class="text-muted mt-2 d-block">IP: {{ tv.ip }}</small>
             </div>
             {% endfor %}
         </div>
@@ -59,31 +74,28 @@
     <script>
         function scan() {
             const b = document.getElementById('sBtn'); b.disabled = true; b.innerText = "Bezig met zoeken...";
+            document.getElementById('results').innerHTML = "";
             fetch('./api/discover').then(r => r.json()).then(data => {
                 let h = "";
+                if(data.length === 0) h = '<div class="alert alert-dark text-center">Geen KidsLock apps gevonden.</div>';
                 data.forEach(d => {
                     const id = d.ip.replace(/\./g, '_');
-                    h += `<div class="p-3 border-bottom d-flex justify-content-between align-items-center">
-                        <span>${d.name} (${d.ip})</span>
+                    h += `<div class="p-3 border-bottom border-secondary d-flex justify-content-between align-items-center">
+                        <span>${d.name} <small class="text-muted">(${d.ip})</small></span>
                         <div class="d-flex gap-2">
-                            <input type="text" id="c_${id}" class="form-control form-control-sm" style="width:70px" placeholder="Code">
-                            <button class="btn btn-sm btn-success" onclick="pair('${d.ip}', 'c_${id}')">OK</button>
+                            <input type="text" id="c_${id}" class="form-control form-control-sm" style="width:75px" placeholder="Code">
+                            <button class="btn btn-sm btn-success" onclick="sendPair('${d.ip}', document.getElementById('c_${id}').value)">OK</button>
                         </div>
                     </div>`;
                 });
-                document.getElementById('results').innerHTML = h || "Geen apparaten gevonden.";
+                document.getElementById('results').innerHTML = h;
             }).finally(() => { b.disabled = false; b.innerText = "Zoek apparaten in netwerk"; });
         }
 
         function pairManual() {
             const ip = document.getElementById('m_ip').value;
             const code = document.getElementById('m_code').value;
-            if(!ip || !code) return alert("Vul alles in");
-            sendPair(ip, code);
-        }
-
-        function pair(ip, fieldId) {
-            const code = document.getElementById(fieldId).value;
+            if(!ip || !code) return alert("Vul IP en Code in");
             sendPair(ip, code);
         }
 
@@ -91,11 +103,20 @@
             const fd = new FormData(); fd.append('ip', ip); fd.append('code', code);
             fetch('./api/pair_with_device', {method:'POST', body:fd}).then(r => r.json()).then(res => {
                 if(res.status==='success') { alert('Gekoppeld!'); location.reload(); }
-                else { alert('Fout: ' + res.message); }
+                else { alert('Pairing mislukt. Controleer code/IP.'); }
             });
         }
 
-        function del(n) { if(confirm('Verwijderen?')) fetch('./api/delete_tv/'+n, {method:'POST'}).then(() => location.reload()); }
+        function save(old, idx) {
+            const fd = new FormData();
+            fd.append('old_name', old);
+            fd.append('new_name', document.getElementById('n_'+idx).value);
+            fd.append('daily_limit', document.getElementById('l_'+idx).value);
+            fd.append('no_limit', document.getElementById('u_'+idx).checked ? 1 : 0);
+            fetch('./api/update_tv', {method:'POST', body:fd}).then(() => location.reload());
+        }
+
+        function del(n) { if(confirm('TV ' + n + ' verwijderen?')) fetch('./api/delete_tv/'+n, {method:'POST'}).then(() => location.reload()); }
     </script>
 </body>
 </html>
