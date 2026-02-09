@@ -2,120 +2,100 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KidsLock Setup</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #f4f7f6; padding-top: 20px; font-family: sans-serif; }
-        .card { border-radius: 15px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .device-card { transition: transform 0.2s; }
-        .device-card:hover { transform: translateY(-3px); }
+        body { background-color: #0d1117; color: #c9d1d9; padding: 20px; }
+        .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 12px; }
+        .nav-tabs { border-bottom: 1px solid #30363d; }
+        .nav-link { color: #8b949e; border: none !important; }
+        .nav-link.active { background: none !important; color: #58a6ff !important; border-bottom: 2px solid #58a6ff !important; }
+        .form-control { background-color: #0d1117; border: 1px solid #30363d; color: white; }
+        .form-control:focus { background-color: #0d1117; color: white; border-color: #58a6ff; box-shadow: none; }
+        .btn-success { background-color: #238636; border: none; }
+        .device-row { border-bottom: 1px solid #30363d; padding: 15px 0; }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" style="max-width: 700px;">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2 class="fw-bold">🛡️ KidsLock Setup</h2>
-            <a href="./" class="btn btn-outline-secondary">Dashboard</a>
+            <h3 class="fw-bold">⚙️ Instellingen</h3>
+            <a href="./" class="btn btn-sm btn-outline-light">Terug naar Dashboard</a>
         </div>
 
-        <div class="card p-4 mb-4 border-primary border-top border-4">
-            <h4>🔍 TV Zoeken in netwerk</h4>
-            <p class="text-muted small">Zorg dat de KidsLock app open staat op je TV (Poort 8081).</p>
-            <button class="btn btn-primary fw-bold w-100" onclick="scanNetwork()" id="scanBtn">START NETWERK SCAN</button>
-            
-            <div id="scanResults" class="mt-4">
+        <div class="card p-4 mb-4">
+            <ul class="nav nav-tabs mb-4" id="setupTabs" role="tablist">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#scan-pane">Automatisch Scannen</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#manual-pane">Handmatig IP</button></li>
+            </ul>
+
+            <div class="tab-content">
+                <div class="tab-pane fade show active" id="scan-pane">
+                    <button class="btn btn-primary w-100" onclick="scan()" id="sBtn">Zoek apparaten in netwerk</button>
+                    <div id="results" class="mt-3"></div>
                 </div>
+
+                <div class="tab-pane fade" id="manual-pane">
+                    <div class="row g-2">
+                        <div class="col-8"><input type="text" id="m_ip" class="form-control" placeholder="IP (bijv. 192.168.2.50)"></div>
+                        <div class="col-4"><input type="text" id="m_code" class="form-control" placeholder="Code"></div>
+                        <button class="btn btn-success mt-3 w-100" onclick="pairManual()">Handmatig Koppelen</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="card p-4">
-            <h4 class="mb-3">📺 Gekoppelde Apparaten</h4>
-            <div id="tv_list">
-                {% if not tvs %}
-                    <p class="text-center text-muted my-4">Nog geen apparaten gekoppeld.</p>
-                {% endif %}
-                {% for tv in tvs %}
-                <div class="d-flex justify-content-between align-items-center border-bottom py-3">
-                    <div>
-                        <span class="fw-bold d-block">{{ tv.name }}</span>
-                        <code class="small text-muted">{{ tv.ip }}</code>
-                    </div>
-                    <button class="btn btn-sm btn-danger" onclick="deleteTv('{{ tv.name }}')">Verwijderen</button>
-                </div>
-                {% endfor %}
+            <h5 class="mb-3">Gekoppelde Apparaten</h5>
+            {% for tv in tvs %}
+            <div class="d-flex justify-content-between align-items-center device-row">
+                <div><strong>{{ tv.name }}</strong><br><small class="text-muted">{{ tv.ip }}</small></div>
+                <button class="btn btn-sm btn-outline-danger" onclick="del('{{ tv.name }}')">Verwijderen</button>
             </div>
+            {% endfor %}
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        function scanNetwork() {
-            const btn = document.getElementById('scanBtn');
-            const resultsDiv = document.getElementById('scanResults');
-            
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Bezig met scannen...';
-            resultsDiv.innerHTML = "";
-
-            fetch('./api/discover')
-                .then(res => res.json())
-                .then(devices => {
-                    if (devices.length === 0) {
-                        resultsDiv.innerHTML = '<div class="alert alert-warning">Geen KidsLock apps gevonden. Staat de TV aan?</div>';
-                    } else {
-                        devices.forEach(dev => {
-                            const id = dev.ip.replace(/\./g, '_');
-                            resultsDiv.innerHTML += `
-                                <div class="card p-3 mb-2 bg-light device-card">
-                                    <div class="row align-items-center">
-                                        <div class="col-md-6">
-                                            <strong>${dev.name}</strong><br>
-                                            <small class="text-muted">IP: ${dev.ip}</small>
-                                        </div>
-                                        <div class="col-md-6 d-flex gap-2">
-                                            <input type="text" id="code_${id}" class="form-control" placeholder="Code van TV" maxlength="6">
-                                            <button class="btn btn-success" onclick="pairDevice('${dev.ip}')">KOPPEL</button>
-                                        </div>
-                                    </div>
-                                </div>`;
-                        });
-                    }
-                })
-                .catch(err => {
-                    alert("Fout bij scannen. Herstart de add-on.");
-                })
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.innerText = "START NETWERK SCAN";
+        function scan() {
+            const b = document.getElementById('sBtn'); b.disabled = true; b.innerText = "Bezig met zoeken...";
+            fetch('./api/discover').then(r => r.json()).then(data => {
+                let h = "";
+                data.forEach(d => {
+                    const id = d.ip.replace(/\./g, '_');
+                    h += `<div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <span>${d.name} (${d.ip})</span>
+                        <div class="d-flex gap-2">
+                            <input type="text" id="c_${id}" class="form-control form-control-sm" style="width:70px" placeholder="Code">
+                            <button class="btn btn-sm btn-success" onclick="pair('${d.ip}', 'c_${id}')">OK</button>
+                        </div>
+                    </div>`;
                 });
+                document.getElementById('results').innerHTML = h || "Geen apparaten gevonden.";
+            }).finally(() => { b.disabled = false; b.innerText = "Zoek apparaten in netwerk"; });
         }
 
-        function pairDevice(ip) {
-            const id = ip.replace(/\./g, '_');
-            const code = document.getElementById('code_' + id).value;
-            if (code.length < 6) return alert("Voer de 6-cijferige code in.");
-
-            const formData = new FormData();
-            formData.append('ip', ip);
-            formData.append('code', code);
-
-            fetch('./api/pair_with_device', { method: 'POST', body: formData })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        alert('Gekoppeld: ' + data.name);
-                        location.reload();
-                    } else {
-                        alert('Pairing mislukt: ' + data.message);
-                    }
-                });
+        function pairManual() {
+            const ip = document.getElementById('m_ip').value;
+            const code = document.getElementById('m_code').value;
+            if(!ip || !code) return alert("Vul alles in");
+            sendPair(ip, code);
         }
 
-        function deleteTv(name) {
-            if (confirm('Apparaat ' + name + ' verwijderen?')) {
-                fetch('./api/delete_tv/' + name, { method: 'POST' })
-                    .then(() => location.reload());
-            }
+        function pair(ip, fieldId) {
+            const code = document.getElementById(fieldId).value;
+            sendPair(ip, code);
         }
+
+        function sendPair(ip, code) {
+            const fd = new FormData(); fd.append('ip', ip); fd.append('code', code);
+            fetch('./api/pair_with_device', {method:'POST', body:fd}).then(r => r.json()).then(res => {
+                if(res.status==='success') { alert('Gekoppeld!'); location.reload(); }
+                else { alert('Fout: ' + res.message); }
+            });
+        }
+
+        function del(n) { if(confirm('Verwijderen?')) fetch('./api/delete_tv/'+n, {method:'POST'}).then(() => location.reload()); }
     </script>
 </body>
 </html>
