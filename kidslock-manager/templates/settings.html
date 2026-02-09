@@ -9,7 +9,6 @@
         .day-box { background: #252525; border: 1px solid #444; border-radius: 10px; padding: 10px; text-align: center; }
         .day-box label { display: block; font-size: 0.75rem; color: #888; text-transform: uppercase; margin-bottom: 5px; }
         .day-box input { background: transparent; border: none; color: #03a9f4; text-align: center; font-weight: bold; width: 100%; font-size: 1.1rem; }
-        .day-box input:focus { outline: none; color: #fff; }
         .form-control-ha { background: #252525; border: 1px solid #444; color: #fff; }
     </style>
 </head>
@@ -21,30 +20,31 @@
         </div>
 
         {% for tv in tvs %}
+        {% set tv_loop = loop %}
         <div class="card">
             <div class="row align-items-center mb-4">
                 <div class="col-md-5">
-                    <input type="text" id="name_{{ loop.index }}" class="form-control form-control-ha fs-4 fw-bold" value="{{ tv.name }}">
+                    <input type="text" id="name_{{ tv_loop.index }}" class="form-control form-control-ha fs-4 fw-bold" value="{{ tv.name }}">
                     <small class="text-muted">{{ tv.ip }}</small>
                 </div>
                 <div class="col-md-4 text-center">
                     <div class="form-check form-switch d-inline-block">
-                        <input class="form-check-input" type="checkbox" id="unl_{{ loop.index }}" {% if tv.no_limit %}checked{% endif %}>
+                        <input class="form-check-input" type="checkbox" id="unl_{{ tv_loop.index }}" {% if tv.no_limit %}checked{% endif %}>
                         <label class="ms-2">Onbeperkt</label>
                     </div>
                 </div>
                 <div class="col-md-3 text-end">
-                    <button class="btn btn-success w-100" onclick="save({{ loop.index }}, '{{ tv.name }}')">Opslaan</button>
+                    <button class="btn btn-success w-100" onclick="save({{ tv_loop.index }}, '{{ tv.name }}')">Opslaan</button>
                     <button class="btn btn-link text-danger mt-2" onclick="del('{{ tv.name }}')">Verwijderen</button>
                 </div>
             </div>
 
             <div class="row g-2">
-                {% for d in [('Ma','mon'), ('Di','tue'), ('Wo','wed'), ('Do','thu'), ('Vr','fri'), ('Za','sat'), ('Zo','sun')] %}
+                {% for day_name, day_key in [('Ma','mon'), ('Di','tue'), ('Wo','wed'), ('Do','thu'), ('Vr','fri'), ('Za','sat'), ('Zo','sun')] %}
                 <div class="col">
                     <div class="day-box">
-                        <label>{{ d[0] }}</label>
-                        <input type="number" id="{{ d[1] }}_{{ loop.parent.index }}" value="{{ tv[d[1]] }}">
+                        <label>{{ day_name }}</label>
+                        <input type="number" id="{{ day_key }}_{{ tv_loop.index }}" value="{{ tv[day_key] }}">
                     </div>
                 </div>
                 {% endfor %}
@@ -75,7 +75,7 @@
             fetch('./api/discover').then(r => r.json()).then(data => {
                 let h = "";
                 data.forEach(d => {
-                    h += `<div class="p-3 border-bottom border-secondary d-flex justify-content-between">
+                    h += `<div class="p-3 border-bottom border-secondary d-flex justify-content-between align-items-center">
                         <span>${d.name} (${d.ip})</span>
                         <button class="btn btn-sm btn-success" onclick="pair('${d.ip}')">Koppel</button>
                     </div>`;

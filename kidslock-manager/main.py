@@ -17,7 +17,6 @@ MQTT_PASS = os.getenv("MQTT_PASSWORD", "")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    # Tabel met weekschema kolommen
     conn.execute('''CREATE TABLE IF NOT EXISTS tv_configs 
                     (name TEXT PRIMARY KEY, ip TEXT, no_limit INTEGER DEFAULT 0, 
                      elapsed REAL DEFAULT 0, last_reset TEXT,
@@ -25,8 +24,6 @@ def init_db():
                      wed_lim INTEGER DEFAULT 120, thu_lim INTEGER DEFAULT 120,
                      fri_lim INTEGER DEFAULT 120, sat_lim INTEGER DEFAULT 180,
                      sun_lim INTEGER DEFAULT 180)''')
-    
-    # Auto-patch voor overstap van daily_limit naar weekschema
     cursor = conn.execute("PRAGMA table_info(tv_configs)")
     cols = [column[1] for column in cursor.fetchall()]
     days = ['mon_lim', 'tue_lim', 'wed_lim', 'thu_lim', 'fri_lim', 'sat_lim', 'sun_lim']
@@ -65,29 +62,22 @@ def monitor_task():
     while True:
         try:
             now = datetime.now(); today = now.strftime("%Y-%m-%d")
-            day_key = now.strftime("%a").lower() + "_lim" # e.g. 'mon_lim'
+            day_key = now.strftime("%a").lower() + "_lim"
             delta = (time.time() - last_tick) / 60.0; last_tick = time.time()
-            
             conn = sqlite3.connect(DB_PATH)
             tvs = conn.execute("SELECT name, ip, no_limit, elapsed, last_reset, mon_lim, tue_lim, wed_lim, thu_lim, fri_lim, sat_lim, sun_lim FROM tv_configs").fetchall()
-            
-            # Map index naar dag
             day_idx = {'mon_lim':5, 'tue_lim':6, 'wed_lim':7, 'thu_lim':8, 'fri_lim':9, 'sat_lim':10, 'sun_lim':11}
-            
             for row in tvs:
                 name, ip, no_limit, elapsed, last_reset = row[0], row[1], row[2], row[3], row[4]
                 current_limit = row[day_idx[day_key]]
                 slug = name.lower().replace(" ", "_")
-                
                 if last_reset != today:
                     conn.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ? WHERE name = ?", (today, name))
                     elapsed = 0
-                
                 online = False
                 try:
                     with socket.create_connection((ip, 8081), timeout=0.4): online = True
                 except: pass
-                
                 if online:
                     if not no_limit:
                         new_elapsed = elapsed + delta
@@ -174,16 +164,6 @@ async def pair(ip: str=Form(...), code: str=Form(...)):
 @app.post("/api/delete_tv/{name}")
 async def delete(name: str):
     with sqlite3.connect(DB_PATH) as conn: conn.execute("DELETE FROM tv_configs WHERE name=?", (name,))
-    return {"status": "ok"}
-
-@app.post("/api/remote_control")
-async def remote_control(ip: str=Form(...), key: str=Form(...), name: str=Form(...)):
-    if "woonkamer" in name.lower() and key == "POWER_ON":
-        try: requests.post(f"http://{ip}:8080/cec/on", timeout=1)
-        except: pass
-    else:
-        try: requests.post(f"http://{ip}:8081/remote", data={"key": key}, timeout=1)
-        except: pass
     return {"status": "ok"}
 
 if __name__ == "__main__": uvicorn.run(app, host="0.0.0.0", port=8000)
