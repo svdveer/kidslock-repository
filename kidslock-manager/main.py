@@ -6,11 +6,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
-# --- INITIALISATIE ---
+# --- INITIALISATIE & LOGGING ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
 
+# --- MQTT CONFIGURATIE ---
 MQTT_HOST = os.getenv("MQTT_HOST", "core-mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 MQTT_USER = os.getenv("MQTT_USER", "")
@@ -37,6 +38,7 @@ def init_db():
 init_db()
 app = FastAPI(); templates = Jinja2Templates(directory="templates")
 
+# --- MQTT SETUP ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER: mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
@@ -58,6 +60,7 @@ def publish_discovery():
             }), retain=True)
     except: pass
 
+# --- MONITOR TAAK ---
 def monitor_task():
     last_tick = time.time()
     while True:
@@ -98,6 +101,7 @@ def monitor_task():
 
 threading.Thread(target=monitor_task, daemon=True).start()
 
+# --- API ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     day_key = datetime.now().strftime("%a").lower() + "_lim"
@@ -118,17 +122,19 @@ async def settings_ui(request: Request):
     return templates.TemplateResponse("settings.html", {"request": request, "tvs": tvs})
 
 @app.post("/api/update_tv")
-async def update_tv(old_name: str=Form(...), new_name: str=Form(...), no_limit: int=Form(...),
-                    mon: int=Form(...), tue: int=Form(...), wed: int=Form(...), 
-                    thu: int=Form(...), fri: int=Form(...), sat: int=Form(...), sun: int=Form(...)):
+async def update_tv(old_name: str = Form(...), new_name: str = Form(...), no_limit: int = Form(...),
+                    mon: int = Form(...), tue: int = Form(...), wed: int = Form(...), 
+                    thu: int = Form(...), fri: int = Form(...), sat: int = Form(...), sun: int = Form(...)):
     try:
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.execute("""UPDATE tv_configs SET name=?, no_limit=?, 
                             mon_lim=?, tue_lim=?, wed_lim=?, thu_lim=?, fri_lim=?, sat_lim=?, sun_lim=? 
                             WHERE name=?""", (new_name, no_limit, mon, tue, wed, thu, fri, sat, sun, old_name))
             conn.commit()
-        publish_discovery(); return {"status": "ok"}
+        publish_discovery()
+        return {"status": "ok"}
     except Exception as e:
+        logger.error(f"Fout bij opslaan: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 @app.post("/api/tv_action")
@@ -144,7 +150,7 @@ async def tv_action(ip: str=Form(...), action: str=Form(...)):
 async def discover(request: Request):
     base_ip = ".".join(request.client.host.split(".")[:3]) + "."
     def check_dev(i):
-        target = f"{base_ip}{i}"
+        target = f"{base_ip}{i}"; 
         try:
             with socket.create_connection((target, 8081), timeout=0.1):
                 r = requests.get(f"http://{target}:8081/device_info", timeout=0.2)
