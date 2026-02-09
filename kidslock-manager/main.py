@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
+# --- INITIALISATIE ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
@@ -120,11 +121,15 @@ async def settings_ui(request: Request):
 async def update_tv(old_name: str=Form(...), new_name: str=Form(...), no_limit: int=Form(...),
                     mon: int=Form(...), tue: int=Form(...), wed: int=Form(...), 
                     thu: int=Form(...), fri: int=Form(...), sat: int=Form(...), sun: int=Form(...)):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""UPDATE tv_configs SET name=?, no_limit=?, 
-                        mon_lim=?, tue_lim=?, wed_lim=?, thu_lim=?, fri_lim=?, sat_lim=?, sun_lim=? 
-                        WHERE name=?""", (new_name, no_limit, mon, tue, wed, thu, fri, sat, sun, old_name))
-    publish_discovery(); return {"status": "ok"}
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.execute("""UPDATE tv_configs SET name=?, no_limit=?, 
+                            mon_lim=?, tue_lim=?, wed_lim=?, thu_lim=?, fri_lim=?, sat_lim=?, sun_lim=? 
+                            WHERE name=?""", (new_name, no_limit, mon, tue, wed, thu, fri, sat, sun, old_name))
+            conn.commit()
+        publish_discovery(); return {"status": "ok"}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 @app.post("/api/tv_action")
 async def tv_action(ip: str=Form(...), action: str=Form(...)):

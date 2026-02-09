@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "2.1.7"
+version: "2.1.8"
 slug: "kidslock-manager"
-description: "v2.1.7 - visual update"
+description: "v2.1.8 - visual update"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
