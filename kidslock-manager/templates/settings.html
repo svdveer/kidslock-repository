@@ -49,23 +49,30 @@
         </div>
     </div>
 
-    <script>
-        function generateCode() {
-            fetch('/api/get_general_pairing_code')
-                .then(res => res.json())
-                .then(data => {
-                    document.getElementById('pairing_display').innerText = data.code;
-                    document.getElementById('pairing_result').classList.remove('d-none');
-                })
-                .catch(err => alert('Fout bij verbinden met server.'));
-        }
+   <script>
+    function generateCode() {
+        // Gebruik './' om te zorgen dat het pad altijd relatief is aan de huidige URL
+        fetch('./api/get_general_pairing_code')
+            .then(res => {
+                if (!res.ok) throw new Error('Server antwoordde niet goed');
+                return res.json();
+            })
+            .then(data => {
+                document.getElementById('pairing_display').innerText = data.code;
+                document.getElementById('pairing_result').classList.remove('d-none');
+            })
+            .catch(err => {
+                console.error('Pairing error:', err);
+                alert('Fout bij verbinden met server. Check de add-on logs.');
+            });
+    }
 
-        function deleteTv(name) {
-            if(confirm('Apparaat ' + name + ' verwijderen?')) {
-                fetch('/api/delete_tv/' + name, { method: 'POST' })
-                    .then(() => location.reload());
-            }
+    function deleteTv(name) {
+        if(confirm('Apparaat ' + name + ' verwijderen?')) {
+            fetch('./api/delete_tv/' + name, { method: 'POST' })
+                .then(() => location.reload());
         }
-    </script>
+    }
+</script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "2.0.0.3"
+version: "2.0.0.4"
 slug: "kidslock-manager"
-description: "v2.0.0.3 - Improved Device Pairing and UI"
+description: "v2.0.0.4 - Improved Device Pairing and UI"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
