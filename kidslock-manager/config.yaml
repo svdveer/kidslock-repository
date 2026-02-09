@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "2.1.8"
+version: "2.2.6"
 slug: "kidslock-manager"
-description: "v2.1.8 - visual update"
+description: "v2.2.6 - Browser Access, MQTT Discovery & Web UI"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
@@ -9,20 +9,29 @@ arch:
   - armv7
 startup: services
 boot: auto
-host_network: true
+# Ingress zorgt voor toegang BINNEN de HA interface
 ingress: true
 ingress_port: 8000
 panel_icon: "mdi:shield-lock"
+
+# Network zorgt voor directe toegang via http://IP:8000
+network:
+  8000/tcp: 8000
+
+# MQTT integratie
 mqtt: true
+
 privileged:
   - NET_ADMIN
+
+# Standaard opties voor de gebruiker
 options:
-  mqtt:
-    host: "core-mosquitto"
-    port: 1883
+  mqtt_host: "core-mosquitto"
+  mqtt_port: 1883
+
+# Validatie van de opties
 schema:
-  mqtt:
-    host: str?
-    port: int?
-    username: str?
-    password: str?
+  mqtt_host: str?
+  mqtt_port: int?
+  mqtt_user: str?
+  mqtt_password: str?

@@ -90,7 +90,6 @@
             fd.append('new_name', document.getElementById('name_' + idx).value);
             fd.append('no_limit', document.getElementById('unl_' + idx).checked ? "1" : "0");
             
-            // Expliciet ophalen van waarden als string om 422 errors te voorkomen
             const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
             days.forEach(day => {
                 const val = document.getElementById(day + '_' + idx).value || "120";

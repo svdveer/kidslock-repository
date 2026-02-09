@@ -41,12 +41,6 @@ app = FastAPI(); templates = Jinja2Templates(directory="templates")
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER: mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
-def on_connect(client, userdata, flags, rc, props=None):
-    if rc == 0: publish_discovery()
-mqtt_client.on_connect = on_connect
-try: mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60); mqtt_client.loop_start()
-except: pass
-
 def publish_discovery():
     try:
         conn = sqlite3.connect(DB_PATH); tvs = conn.execute("SELECT name FROM tv_configs").fetchall(); conn.close()
@@ -58,6 +52,12 @@ def publish_discovery():
                 "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem", "device": dev
             }), retain=True)
     except: pass
+
+def on_connect(client, userdata, flags, rc, props=None):
+    if rc == 0: publish_discovery()
+mqtt_client.on_connect = on_connect
+try: mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60); mqtt_client.loop_start()
+except: pass
 
 # --- MONITOR TAAK ---
 def monitor_task():
@@ -125,15 +125,11 @@ async def update_tv(old_name: str = Form(...), new_name: str = Form(...), no_lim
                     mon: str = Form(...), tue: str = Form(...), wed: str = Form(...), 
                     thu: str = Form(...), fri: str = Form(...), sat: str = Form(...), sun: str = Form(...)):
     try:
-        # Conversie binnen Python om 422 errors bij request validatie te voorkomen
         nl = 1 if no_limit == "1" else 0
-        m, t, w = int(mon), int(tue), int(wed)
-        th, f, sa, su = int(thu), int(fri), int(sat), int(sun)
-
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.execute("""UPDATE tv_configs SET name=?, no_limit=?, 
                             mon_lim=?, tue_lim=?, wed_lim=?, thu_lim=?, fri_lim=?, sat_lim=?, sun_lim=? 
-                            WHERE name=?""", (new_name, nl, m, t, w, th, f, sa, su, old_name))
+                            WHERE name=?""", (new_name, nl, int(mon), int(tue), int(wed), int(thu), int(fri), int(sat), int(sun), old_name))
             conn.commit()
         publish_discovery()
         return {"status": "ok"}

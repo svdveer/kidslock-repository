@@ -3,62 +3,131 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KidsLock Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
     <style>
-        :root { --ha-blue: #03a9f4; --ha-card: #1c1c1c; --bg: #111; }
-        body { background: var(--bg); color: #e1e1e1; font-family: 'Segoe UI', Roboto, sans-serif; padding: 20px; }
-        .tv-card { background: var(--ha-card); border-radius: 16px; border: 1px solid #333; padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); transition: 0.3s; margin-bottom: 20px; }
-        .timer-display { font-size: 2.5rem; font-weight: 700; color: var(--ha-blue); text-shadow: 0 0 20px rgba(3,169,244,0.3); }
-        .progress { height: 10px; background: #333; border-radius: 5px; margin: 15px 0; }
-        .progress-bar { background: linear-gradient(90deg, #4caf50, #8bc34a); border-radius: 5px; }
-        .btn-ha { background: #2c2c2c; border: 1px solid #444; color: #fff; border-radius: 10px; padding: 10px; font-size: 0.9rem; transition: 0.2s; }
-        .btn-ha:hover { background: #3d3d3d; border-color: #666; }
-        .btn-danger-ha { color: #ff5252; border-color: #5a2d2d; }
+        body { background: #111; color: #e1e1e1; font-family: sans-serif; padding-top: 20px; }
+        .tv-card { 
+            background: #1c1c1c; border: 1px solid #333; border-radius: 20px; 
+            padding: 20px; margin-bottom: 20px; transition: transform 0.2s;
+        }
+        .tv-card:hover { transform: translateY(-5px); border-color: #03a9f4; }
+        .status-badge { font-size: 0.8rem; padding: 5px 12px; border-radius: 50px; }
+        .bg-online { background: #2e7d32; color: #fff; }
+        .bg-offline { background: #c62828; color: #fff; }
+        .progress { height: 12px; background-color: #333; border-radius: 10px; margin: 15px 0; }
+        .progress-bar { background: linear-gradient(90deg, #03a9f4, #00bcd4); }
+        .btn-action { border-radius: 12px; font-weight: bold; padding: 10px; transition: 0.3s; }
+        .time-display { font-size: 2.5rem; font-weight: bold; color: #fff; line-height: 1; }
+        .time-label { font-size: 0.8rem; color: #888; text-transform: uppercase; }
+        .nav-link-custom { color: #888; text-decoration: none; font-weight: bold; }
+        .nav-link-custom:hover { color: #03a9f4; }
     </style>
 </head>
 <body>
-    <div class="container" style="max-width: 900px;">
-        <div class="d-flex justify-content-between align-items-center mb-5">
-            <h1 class="fw-bold m-0"><span style="color:var(--ha-blue)">Kids</span>Lock Pro</h1>
-            <a href="./settings" class="btn btn-ha">⚙️ Instellingen</a>
+    <div class="container" style="max-width: 800px;">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="fw-bold m-0">KidsLock</h1>
+            <div class="d-flex gap-3">
+                <a href="/settings" class="nav-link-custom">⚙️ INSTELLINGEN</a>
+            </div>
         </div>
-        <div class="row">
-            {% for tv in tvs %}
-            <div class="col-md-6">
-                <div class="tv-card">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div><h3 class="m-0 fw-bold">{{ tv.name }}</h3><small class="text-muted">{{ tv.ip }}</small></div>
-                        <span class="badge {{ 'bg-success' if tv.remaining > 0 else 'bg-danger' }}">
-                            {{ 'Unlimited' if tv.no_limit else 'Active' }}
-                        </span>
-                    </div>
-                    <div class="text-center py-4">
-                        <div class="timer-display">{{ '∞' if tv.no_limit else (tv.remaining|string + 'm') }}</div>
-                        <div class="small text-muted text-uppercase mt-1">Resterend</div>
-                    </div>
-                    <div class="progress">
-                        {% set perc = (tv.elapsed / tv.limit * 100) if tv.limit > 0 else 0 %}
-                        <div class="progress-bar" style="width: {{ perc }}%"></div>
-                    </div>
-                    <div class="d-flex justify-content-between mb-4 small text-muted">
-                        <span>Verbruikt: {{ tv.elapsed }}m</span>
-                        <span>Limiet: {{ tv.limit }}m</span>
-                    </div>
-                    <div class="row g-2">
-                        <div class="col-4"><button class="btn btn-ha w-100" onclick="act('{{ tv.ip }}','lock')">🔒 Lock</button></div>
-                        <div class="col-4"><button class="btn btn-ha w-100" onclick="act('{{ tv.ip }}','unlock')">🔓 Unlock</button></div>
-                        <div class="col-4"><button class="btn btn-ha btn-danger-ha w-100" onclick="act('{{ tv.ip }}','reset')">🔄 Reset</button></div>
+
+        {% if not tvs %}
+        <div class="text-center py-5">
+            <p class="text-muted fs-5">Geen gekoppelde TV's gevonden.</p>
+            <a href="/settings" class="btn btn-primary">Nu TV koppelen</a>
+        </div>
+        {% endif %}
+
+        {% for tv in tvs %}
+        <div class="tv-card shadow-lg">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <h3 class="m-0 fw-bold">{{ tv.name }}</h3>
+                    <code class="text-muted" style="font-size: 0.85rem;">{{ tv.ip }}</code>
+                </div>
+                {% if tv.no_limit %}
+                <span class="status-badge bg-info">UNLIMITED</span>
+                {% else %}
+                <span class="status-badge bg-online">ACTIEF</span>
+                {% endif %}
+            </div>
+
+            <div class="row align-items-center py-3">
+                <div class="col-6">
+                    <div class="time-label">Resterend</div>
+                    <div class="time-display">
+                        {% if tv.no_limit %}∞{% else %}{{ tv.remaining }}{% endif %}
+                        <span style="font-size: 1rem; color: #555;">MIN</span>
                     </div>
                 </div>
+                <div class="col-6 text-end">
+                    <div class="time-label">Verbruikt</div>
+                    <div class="fs-4 fw-bold text-muted">{{ tv.elapsed }} / {{ tv.limit }} m</div>
+                </div>
             </div>
-            {% endfor %}
+
+            {% if not tv.no_limit %}
+            {% set pct = (tv.elapsed / tv.limit * 100) | round %}
+            <div class="progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" style="width: {{ pct if pct <= 100 else 100 }}%"></div>
+            </div>
+            {% endif %}
+
+            <div class="row g-2 mt-2">
+                <div class="col-4">
+                    <button class="btn btn-outline-danger btn-action w-100" onclick="action('{{ tv.ip }}', 'lock')">SLOT</button>
+                </div>
+                <div class="col-4">
+                    <button class="btn btn-outline-success btn-action w-100" onclick="action('{{ tv.ip }}', 'unlock')">OPEN</button>
+                </div>
+                <div class="col-4">
+                    <button class="btn btn-outline-warning btn-action w-100" onclick="action('{{ tv.ip }}', 'reset')">RESET</button>
+                </div>
+            </div>
         </div>
+        {% endfor %}
     </div>
+
     <script>
-        function act(ip, a) {
-            const fd = new FormData(); fd.append('ip', ip); fd.append('action', a);
-            fetch('./api/tv_action', {method:'POST', body:fd}).then(() => location.reload());
+        function action(ip, act) {
+            const fd = new FormData();
+            fd.append('ip', ip);
+            fd.append('action', act);
+
+            // Visuele feedback op knop
+            const btn = event.target;
+            const originalText = btn.innerText;
+            btn.innerText = "...";
+            btn.disabled = true;
+
+            fetch('/api/tv_action', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        btn.innerText = "✓";
+                        setTimeout(() => {
+                            btn.innerText = originalText;
+                            btn.disabled = false;
+                            if(act === 'reset') location.reload();
+                        }, 1000);
+                    } else {
+                        alert("TV onbereikbaar!");
+                        btn.innerText = originalText;
+                        btn.disabled = false;
+                    }
+                })
+                .catch(() => {
+                    alert("Fout bij uitvoeren actie.");
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                });
         }
+
+        // Auto-refresh elke 30 seconden voor actuele MQTT-data
+        setTimeout(() => location.reload(), 30000);
     </script>
 </body>
 </html>
