@@ -121,4 +121,16 @@ async def update_tv(request: Request):
         conn.execute("UPDATE tv_configs SET name=?, no_limit=?, mon_lim=?, mon_bed=?, tue_lim=?, tue_bed=?, wed_lim=?, wed_bed=?, thu_lim=?, thu_bed=?, fri_lim=?, fri_bed=?, sat_lim=?, sat_bed=?, sun_lim=?, sun_bed=? WHERE name=?", (d['new_name'], int(d['no_limit']), d['mon_lim'], d['mon_bed'], d['tue_lim'], d['tue_bed'], d['wed_lim'], d['wed_bed'], d['thu_lim'], d['thu_bed'], d['fri_lim'], d['fri_bed'], d['sat_lim'], d['sat_bed'], d['sun_lim'], d['sun_bed'], d['old_name']))
     publish_discovery(); return {"status": "ok"}
 
+@app.post("/api/tv_action")
+async def tv_action(ip: str = Form(...), action: str = Form(...)):
+    if action == "reset":
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("UPDATE tv_configs SET elapsed = 0 WHERE ip = ?", (ip,))
+        action = "unlock"
+    try:
+        requests.post(f"http://{ip}:8081/{action}", timeout=2)
+        return {"status": "ok"}
+    except:
+        return {"status": "error"}
+
 if __name__ == "__main__": uvicorn.run(app, host="0.0.0.0", port=8000)

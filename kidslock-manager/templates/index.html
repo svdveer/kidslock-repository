@@ -11,12 +11,14 @@
             <h1 class="fw-bold m-0">KidsLock</h1>
             <a href="settings" class="btn btn-outline-info">INSTELLINGEN</a>
         </div>
+        
         {% for tv in tvs %}
         <div class="tv-card shadow-lg">
             <div class="d-flex justify-content-between">
                 <h3 class="fw-bold m-0">{{ tv.name }}</h3>
                 <span class="bedtime-tag">🌙 Bedtijd: {{ tv.bedtime }}</span>
             </div>
+            
             <div class="row mt-3">
                 <div class="col-6">
                     <small class="text-muted d-block uppercase small">Resterend</small>
@@ -27,19 +29,37 @@
                     <div class="fs-2 fw-bold text-info">{{ tv.elapsed }} / {{ tv.limit }}</div>
                 </div>
             </div>
+
             {% if not tv.no_limit %}
             <div class="progress-box">
                 {% set pct = (tv.elapsed / tv.limit * 100) | round | int %}
                 <div class="progress-fill" data-pct="{{ pct if pct < 100 else 100 }}"></div>
             </div>
             {% endif %}
+
+            <div class="row g-2 mt-3">
+                <div class="col-4"><button class="btn btn-outline-danger w-100 fw-bold" onclick="tvAction('{{ tv.ip }}', 'lock')">SLOT</button></div>
+                <div class="col-4"><button class="btn btn-outline-success w-100 fw-bold" onclick="tvAction('{{ tv.ip }}', 'unlock')">OPEN</button></div>
+                <div class="col-4"><button class="btn btn-outline-warning w-100 fw-bold" onclick="tvAction('{{ tv.ip }}', 'reset')">RESET</button></div>
+            </div>
         </div>
         {% endfor %}
     </div>
+
     <script>
         document.querySelectorAll('.progress-fill').forEach(function(bar) {
             bar.style.width = bar.getAttribute('data-pct') + '%';
         });
+
+        function tvAction(ip, act) {
+            const fd = new FormData();
+            fd.append('ip', ip);
+            fd.append('action', act);
+            fetch('api/tv_action', { method: 'POST', body: fd }).then(function(r) { 
+                if(act === 'reset') location.reload();
+                else alert('Opdracht verzonden!');
+            });
+        }
     </script>
 </body>
 </html>
