@@ -26,7 +26,7 @@
             <div id="sched_{{ loop.index }}" class="schedule-panel">
                 <div class="mb-3">
                     <input type="checkbox" id="unl_{{ loop.index }}" {% if tv.no_limit %}checked{% endif %}> 
-                    <label>Unlimited minuten</label>
+                    <label>Unlimited minuten (bedtijd blijft actief)</label>
                 </div>
                 {% for d_name, d_key in [('Ma','mon'), ('Di','tue'), ('Wo','wed'), ('Do','thu'), ('Vr','fri'), ('Za','sat'), ('Zo','sun')] %}
                 <div class="row mb-2 align-items-center">

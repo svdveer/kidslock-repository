@@ -7,59 +7,39 @@
 </head>
 <body>
     <div class="container" style="max-width: 800px;">
-        <div class="d-flex justify-content-between mb-4">
-            <h2>⚙️ Instellingen</h2>
-            <a href="./" class="btn btn-outline-light">Terug</a>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="fw-bold m-0">KidsLock</h1>
+            <a href="settings" class="btn btn-outline-info">INSTELLINGEN</a>
         </div>
         {% for tv in tvs %}
-        <div class="tv-card" data-tv-idx="{{ loop.index }}" data-old-name="{{ tv.name }}">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <input type="text" id="name_{{ loop.index }}" class="fs-4 fw-bold border-0 bg-transparent" value="{{ tv.name }}">
-                    <div class="text-muted small">{{ tv.ip }}</div>
+        <div class="tv-card shadow-lg">
+            <div class="d-flex justify-content-between">
+                <h3 class="fw-bold m-0">{{ tv.name }}</h3>
+                <span class="bedtime-tag">🌙 Bedtijd: {{ tv.bedtime }}</span>
+            </div>
+            <div class="row mt-3">
+                <div class="col-6">
+                    <small class="text-muted d-block uppercase small">Resterend</small>
+                    <div class="time-display">{% if tv.no_limit %}∞{% else %}{{ tv.remaining }}{% endif %}<span class="fs-6 text-muted"> MIN</span></div>
                 </div>
-                <div>
-                    <button class="btn btn-outline-info me-2" onclick="toggleSchedule('{{ loop.index }}')">Schema 📅</button>
-                    <button class="btn btn-success" id="btn_{{ loop.index }}" onclick="saveTV('{{ loop.index }}')">Opslaan</button>
+                <div class="col-6 text-end">
+                    <small class="text-muted d-block uppercase small">Gebruikt</small>
+                    <div class="fs-2 fw-bold text-info">{{ tv.elapsed }} / {{ tv.limit }}</div>
                 </div>
             </div>
-            <div id="sched_{{ loop.index }}" class="schedule-panel">
-                <div class="mb-3">
-                    <input type="checkbox" id="unl_{{ loop.index }}" {% if tv.no_limit %}checked{% endif %}> 
-                    <label>Unlimited minuten</label>
-                </div>
-                {% for d_name, d_key in [('Ma','mon'), ('Di','tue'), ('Wo','wed'), ('Do','thu'), ('Vr','fri'), ('Za','sat'), ('Zo','sun')] %}
-                <div class="row mb-2 align-items-center">
-                    <div class="col-2 fw-bold text-info">{{ d_name }}</div>
-                    <div class="col-5"><input type="number" id="{{ d_key }}_lim_{{ loop.parent.index }}" value="{{ tv[d_key+'_lim'] }}" class="w-100"></div>
-                    <div class="col-5"><input type="time" id="{{ d_key }}_bed_{{ loop.parent.index }}" value="{{ tv[d_key+'_bed'] }}" class="w-100"></div>
-                </div>
-                {% endfor %}
+            {% if not tv.no_limit %}
+            <div class="progress-box">
+                {% set pct = (tv.elapsed / tv.limit * 100) | round | int %}
+                <div class="progress-fill" data-pct="{{ pct if pct < 100 else 100 }}"></div>
             </div>
+            {% endif %}
         </div>
         {% endfor %}
     </div>
     <script>
-        function toggleSchedule(idx) { 
-            var p = document.getElementById('sched_' + idx); 
-            if (p) p.style.display = (p.style.display === 'block') ? 'none' : 'block'; 
-        }
-        function saveTV(idx) {
-            var card = document.querySelector('[data-tv-idx="' + idx + '"]');
-            var oldName = card.getAttribute('data-old-name');
-            var btn = document.getElementById('btn_' + idx);
-            btn.innerText = "...";
-            var fd = new FormData();
-            fd.append('old_name', oldName);
-            fd.append('new_name', document.getElementById('name_' + idx).value);
-            fd.append('no_limit', document.getElementById('unl_' + idx).checked ? "1" : "0");
-            var days = ['mon','tue','wed','thu','fri','sat','sun'];
-            days.forEach(function(d) {
-                fd.append(d + '_lim', document.getElementById(d + '_lim_' + idx).value);
-                fd.append(d + '_bed', document.getElementById(d + '_bed_' + idx).value);
-            });
-            fetch('api/update_tv', { method: 'POST', body: fd }).then(function() { location.reload(); });
-        }
+        document.querySelectorAll('.progress-fill').forEach(function(bar) {
+            bar.style.width = bar.getAttribute('data-pct') + '%';
+        });
     </script>
 </body>
 </html>
