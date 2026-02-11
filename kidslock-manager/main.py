@@ -43,25 +43,23 @@ if MQTT_USER: mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
 def on_mqtt_message(client, userdata, msg):
     try:
-        topic = msg.topic  # kidslock/tv_naam/set
-        payload = msg.payload.decode().lower() # lock, unlock, reset
+        topic = msg.topic
+        payload = msg.payload.decode().lower()
         tv_slug = topic.split('/')[1]
         
         conn = sqlite3.connect(DB_PATH)
-        tv = conn.execute("SELECT ip, name FROM tv_configs").fetchall()
+        tvs = conn.execute("SELECT ip, name FROM tv_configs").fetchall()
         conn.close()
         
-        for ip, name in tv:
+        for ip, name in tvs:
             if name.lower().replace(" ", "_") == tv_slug:
-                logger.info(f"MQTT Action: {payload} voor {name} ({ip})")
                 if payload == "reset":
                     with sqlite3.connect(DB_PATH) as c:
                         c.execute("UPDATE tv_configs SET elapsed = 0 WHERE ip = ?", (ip,))
                     requests.post(f"http://{ip}:8081/unlock", timeout=2)
                 elif payload in ["lock", "unlock"]:
                     requests.post(f"http://{ip}:8081/{payload}", timeout=2)
-    except Exception as e:
-        logger.error(f"MQTT Message error: {e}")
+    except Exception as e: logger.error(f"MQTT Error: {e}")
 
 def publish_discovery():
     try:
@@ -69,27 +67,12 @@ def publish_discovery():
         for (name,) in tvs:
             slug = name.lower().replace(" ", "_")
             dev = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}", "manufacturer": "KidsLock"}
-            
-            # Sensor voor resterende tijd
             mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({
                 "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining",
                 "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem", "device": dev
             }), retain=True)
-            
-            # Knop voor Lock
-            mqtt_client.publish(f"homeassistant/button/kidslock_{slug}_lock/config", json.dumps({
-                "name": "Handmatig Slot", "command_topic": f"kidslock/{slug}/set",
-                "payload_press": "lock", "unique_id": f"kidslock_{slug}_btn_lock", "device": dev, "icon": "mdi:lock"
-            }), retain=True)
-
-            # Knop voor Unlock
-            mqtt_client.publish(f"homeassistant/button/kidslock_{slug}_unlock/config", json.dumps({
-                "name": "Handmatig Open", "command_topic": f"kidslock/{slug}/set",
-                "payload_press": "unlock", "unique_id": f"kidslock_{slug}_btn_unlock", "device": dev, "icon": "mdi:lock-open"
-            }), retain=True)
-
             mqtt_client.subscribe(f"kidslock/{slug}/set")
-    except Exception as e: logger.error(f"Discovery error: {e}")
+    except: pass
 
 mqtt_client.on_connect = lambda c, u, f, rc, p=None: publish_discovery() if rc==0 else None
 mqtt_client.on_message = on_mqtt_message
@@ -104,14 +87,18 @@ def monitor_task():
             now = datetime.now(); today = now.strftime("%Y-%m-%d"); now_time = now.strftime("%H:%M")
             day_prefix = now.strftime("%a").lower()
             delta = (time.time() - last_tick) / 60.0; last_tick = time.time()
+            
             conn = sqlite3.connect(DB_PATH)
-            tvs = conn.execute(f"SELECT name, ip, no_limit, elapsed, last_reset, {day_prefix}_lim, {day_prefix}_bed FROM tv_configs").fetchall()
+            # We casten de limiet expliciet naar REAL om berekeningsfouten te voorkomen
+            tvs = conn.execute(f"SELECT name, ip, no_limit, elapsed, last_reset, CAST({day_prefix}_lim AS REAL), {day_prefix}_bed FROM tv_configs").fetchall()
+            
             for row in tvs:
                 name, ip, no_limit, elapsed, last_reset, limit, bedtime = row
                 slug = name.lower().replace(" ", "_")
                 if last_reset != today:
                     conn.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ? WHERE name = ?", (today, name))
                     elapsed = 0
+                
                 try:
                     with socket.create_connection((ip, 8081), timeout=0.4):
                         if no_limit:
@@ -122,24 +109,35 @@ def monitor_task():
                         else:
                             new_elapsed = elapsed + delta
                             conn.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (new_elapsed, name))
-                            rem = int(max(0, limit - new_elapsed))
+                            rem = int(max(0, float(limit) - new_elapsed))
                             mqtt_client.publish(f"kidslock/{slug}/remaining", str(rem))
-                            if new_elapsed >= limit: requests.post(f"http://{ip}:8081/lock", timeout=1)
+                            if new_elapsed >= float(limit): requests.post(f"http://{ip}:8081/lock", timeout=1)
                 except: pass
             conn.commit(); conn.close()
-        except: pass
+        except Exception as e: logger.error(f"Monitor Error: {e}")
         time.sleep(30)
 
 threading.Thread(target=monitor_task, daemon=True).start()
 
-# --- API ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     day_prefix = datetime.now().strftime("%a").lower()
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(f"SELECT name, ip, elapsed, no_limit, {day_prefix}_lim, {day_prefix}_bed FROM tv_configs").fetchall()
+    # Gebruik CAST om zeker te zijn dat we getallen krijgen
+    rows = conn.execute(f"SELECT name, ip, elapsed, no_limit, CAST({day_prefix}_lim AS REAL), {day_prefix}_bed FROM tv_configs").fetchall()
     conn.close()
-    tvs = [{"name": r[0], "ip": r[1], "elapsed": round(r[2],1), "no_limit": r[3], "limit": r[4], "bedtime": r[5], "remaining": int(max(0, r[4]-r[2]))} for r in rows]
+    
+    tvs = []
+    for r in rows:
+        # Hier vangen we de TypeError op door alles naar float te forceren
+        elapsed = float(r[2])
+        limit = float(r[4])
+        remaining = int(max(0, limit - elapsed))
+        tvs.append({
+            "name": r[0], "ip": r[1], "elapsed": round(elapsed, 1),
+            "no_limit": r[3], "limit": int(limit), "bedtime": r[5],
+            "remaining": remaining
+        })
     return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs})
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -170,8 +168,8 @@ async def tv_action(ip: str = Form(...), action: str = Form(...)):
             conn.execute("UPDATE tv_configs SET elapsed = 0 WHERE ip = ?", (ip,))
         action = "unlock"
     try:
-        r = requests.post(f"http://{ip}:8081/{action}", timeout=2)
-        return {"status": "ok"} if r.status_code == 200 else {"status": "error"}
+        requests.post(f"http://{ip}:8081/{action}", timeout=2)
+        return {"status": "ok"}
     except: return {"status": "error"}
 
 @app.post("/api/pair_with_device")
