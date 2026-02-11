@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "2.3.0"
+version: "2.3.1"
 slug: "kidslock-manager"
-description: "v2.3.0 - Bedtijdschema's, Schone UI & Browser Access"
+description: "v2.3.1 - MQTT controls for KidsLock"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64

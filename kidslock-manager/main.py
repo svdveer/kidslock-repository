@@ -37,8 +37,31 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# --- MQTT LOGICA ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER: mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+
+def on_mqtt_message(client, userdata, msg):
+    try:
+        topic = msg.topic  # kidslock/tv_naam/set
+        payload = msg.payload.decode().lower() # lock, unlock, reset
+        tv_slug = topic.split('/')[1]
+        
+        conn = sqlite3.connect(DB_PATH)
+        tv = conn.execute("SELECT ip, name FROM tv_configs").fetchall()
+        conn.close()
+        
+        for ip, name in tv:
+            if name.lower().replace(" ", "_") == tv_slug:
+                logger.info(f"MQTT Action: {payload} voor {name} ({ip})")
+                if payload == "reset":
+                    with sqlite3.connect(DB_PATH) as c:
+                        c.execute("UPDATE tv_configs SET elapsed = 0 WHERE ip = ?", (ip,))
+                    requests.post(f"http://{ip}:8081/unlock", timeout=2)
+                elif payload in ["lock", "unlock"]:
+                    requests.post(f"http://{ip}:8081/{payload}", timeout=2)
+    except Exception as e:
+        logger.error(f"MQTT Message error: {e}")
 
 def publish_discovery():
     try:
@@ -46,31 +69,43 @@ def publish_discovery():
         for (name,) in tvs:
             slug = name.lower().replace(" ", "_")
             dev = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}", "manufacturer": "KidsLock"}
+            
+            # Sensor voor resterende tijd
             mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({
-                "name": "Resterende Tijd", "state_topic": f"kidslock/{slug}/remaining",
+                "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining",
                 "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem", "device": dev
             }), retain=True)
-    except: pass
+            
+            # Knop voor Lock
+            mqtt_client.publish(f"homeassistant/button/kidslock_{slug}_lock/config", json.dumps({
+                "name": "Handmatig Slot", "command_topic": f"kidslock/{slug}/set",
+                "payload_press": "lock", "unique_id": f"kidslock_{slug}_btn_lock", "device": dev, "icon": "mdi:lock"
+            }), retain=True)
+
+            # Knop voor Unlock
+            mqtt_client.publish(f"homeassistant/button/kidslock_{slug}_unlock/config", json.dumps({
+                "name": "Handmatig Open", "command_topic": f"kidslock/{slug}/set",
+                "payload_press": "unlock", "unique_id": f"kidslock_{slug}_btn_unlock", "device": dev, "icon": "mdi:lock-open"
+            }), retain=True)
+
+            mqtt_client.subscribe(f"kidslock/{slug}/set")
+    except Exception as e: logger.error(f"Discovery error: {e}")
 
 mqtt_client.on_connect = lambda c, u, f, rc, p=None: publish_discovery() if rc==0 else None
+mqtt_client.on_message = on_mqtt_message
 try: 
-    mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60)
-    mqtt_client.loop_start()
+    mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60); mqtt_client.loop_start()
 except: pass
 
 def monitor_task():
     last_tick = time.time()
     while True:
         try:
-            now = datetime.now()
-            today = now.strftime("%Y-%m-%d")
-            now_time = now.strftime("%H:%M")
+            now = datetime.now(); today = now.strftime("%Y-%m-%d"); now_time = now.strftime("%H:%M")
             day_prefix = now.strftime("%a").lower()
             delta = (time.time() - last_tick) / 60.0; last_tick = time.time()
-            
             conn = sqlite3.connect(DB_PATH)
             tvs = conn.execute(f"SELECT name, ip, no_limit, elapsed, last_reset, {day_prefix}_lim, {day_prefix}_bed FROM tv_configs").fetchall()
-            
             for row in tvs:
                 name, ip, no_limit, elapsed, last_reset, limit, bedtime = row
                 slug = name.lower().replace(" ", "_")
@@ -97,6 +132,7 @@ def monitor_task():
 
 threading.Thread(target=monitor_task, daemon=True).start()
 
+# --- API ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     day_prefix = datetime.now().strftime("%a").lower()
@@ -134,8 +170,8 @@ async def tv_action(ip: str = Form(...), action: str = Form(...)):
             conn.execute("UPDATE tv_configs SET elapsed = 0 WHERE ip = ?", (ip,))
         action = "unlock"
     try:
-        requests.post(f"http://{ip}:8081/{action}", timeout=2)
-        return {"status": "ok"}
+        r = requests.post(f"http://{ip}:8081/{action}", timeout=2)
+        return {"status": "ok"} if r.status_code == 200 else {"status": "error"}
     except: return {"status": "error"}
 
 @app.post("/api/pair_with_device")
