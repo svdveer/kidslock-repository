@@ -1,0 +1,8 @@
+body { background: #111; color: #e1e1e1; padding-top: 20px; font-family: sans-serif; }
+.tv-card { background: #1c1c1c; border: 1px solid #333; border-radius: 20px; padding: 25px; margin-bottom: 20px; }
+.progress-box { height: 12px; background-color: #333; border-radius: 10px; margin: 15px 0; overflow: hidden; }
+.progress-fill { background: #03a9f4; height: 100%; transition: width 0.3s ease; }
+.time-display { font-size: 3rem; font-weight: bold; color: #fff; }
+.bedtime-tag { background: #3d2b00; color: #ffc107; padding: 4px 12px; border-radius: 10px; font-size: 0.9rem; }
+.schedule-panel { background: #252525; border-radius: 10px; padding: 15px; display: none; margin-top: 15px; border: 1px dashed #444; }
+input { background: #111; border: 1px solid #444; color: #fff; border-radius: 5px; padding: 4px; }

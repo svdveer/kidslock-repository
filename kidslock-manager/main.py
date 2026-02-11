@@ -1,12 +1,12 @@
-import logging, threading, time, sqlite3, requests, socket, json, secrets, concurrent.futures, os
+import logging, threading, time, sqlite3, requests, socket, json, secrets, os
 from datetime import datetime
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
-# --- INITIALISATIE ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
@@ -20,24 +20,23 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute('''CREATE TABLE IF NOT EXISTS tv_configs 
                     (name TEXT PRIMARY KEY, ip TEXT, no_limit INTEGER DEFAULT 0, 
-                     elapsed REAL DEFAULT 0, last_reset TEXT,
-                     mon_lim INTEGER DEFAULT 120, tue_lim INTEGER DEFAULT 120,
-                     wed_lim INTEGER DEFAULT 120, thu_lim INTEGER DEFAULT 120,
-                     fri_lim INTEGER DEFAULT 120, sat_lim INTEGER DEFAULT 180,
-                     sun_lim INTEGER DEFAULT 180)''')
+                     elapsed REAL DEFAULT 0, last_reset TEXT)''')
     cursor = conn.execute("PRAGMA table_info(tv_configs)")
     cols = [column[1] for column in cursor.fetchall()]
-    days = ['mon_lim', 'tue_lim', 'wed_lim', 'thu_lim', 'fri_lim', 'sat_lim', 'sun_lim']
+    days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
     for d in days:
-        if d not in cols:
-            conn.execute(f"ALTER TABLE tv_configs ADD COLUMN {d} INTEGER DEFAULT 120")
+        if f"{d}_lim" not in cols:
+            conn.execute(f"ALTER TABLE tv_configs ADD COLUMN {d}_lim INTEGER DEFAULT 120")
+        if f"{d}_bed" not in cols:
+            conn.execute(f"ALTER TABLE tv_configs ADD COLUMN {d}_bed TEXT DEFAULT '20:00'")
     conn.commit()
     conn.close()
 
 init_db()
-app = FastAPI(); templates = Jinja2Templates(directory="templates")
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
-# --- MQTT SETUP ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER: mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
@@ -53,128 +52,73 @@ def publish_discovery():
             }), retain=True)
     except: pass
 
-def on_connect(client, userdata, flags, rc, props=None):
-    if rc == 0: publish_discovery()
-mqtt_client.on_connect = on_connect
-try: mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60); mqtt_client.loop_start()
+mqtt_client.on_connect = lambda c, u, f, rc, p=None: publish_discovery() if rc==0 else None
+try: 
+    mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60)
+    mqtt_client.loop_start()
 except: pass
 
-# --- MONITOR TAAK ---
 def monitor_task():
     last_tick = time.time()
     while True:
         try:
-            now = datetime.now(); today = now.strftime("%Y-%m-%d")
-            day_key = now.strftime("%a").lower() + "_lim"
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            now_time = now.strftime("%H:%M")
+            day_prefix = now.strftime("%a").lower()
             delta = (time.time() - last_tick) / 60.0; last_tick = time.time()
+            
             conn = sqlite3.connect(DB_PATH)
-            tvs = conn.execute("SELECT name, ip, no_limit, elapsed, last_reset, mon_lim, tue_lim, wed_lim, thu_lim, fri_lim, sat_lim, sun_lim FROM tv_configs").fetchall()
-            day_idx = {'mon_lim':5, 'tue_lim':6, 'wed_lim':7, 'thu_lim':8, 'fri_lim':9, 'sat_lim':10, 'sun_lim':11}
+            tvs = conn.execute(f"SELECT name, ip, no_limit, elapsed, last_reset, {day_prefix}_lim, {day_prefix}_bed FROM tv_configs").fetchall()
+            
             for row in tvs:
-                name, ip, no_limit, elapsed, last_reset = row[0], row[1], row[2], row[3], row[4]
-                current_limit = row[day_idx[day_key]]
+                name, ip, no_limit, elapsed, last_reset, limit, bedtime = row
                 slug = name.lower().replace(" ", "_")
                 if last_reset != today:
                     conn.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ? WHERE name = ?", (today, name))
                     elapsed = 0
-                online = False
                 try:
-                    with socket.create_connection((ip, 8081), timeout=0.4): online = True
+                    with socket.create_connection((ip, 8081), timeout=0.4):
+                        if now_time >= bedtime:
+                            requests.post(f"http://{ip}:8081/lock", timeout=1)
+                            mqtt_client.publish(f"kidslock/{slug}/remaining", "BEDTIME")
+                        elif not no_limit:
+                            new_elapsed = elapsed + delta
+                            conn.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (new_elapsed, name))
+                            rem = int(max(0, limit - new_elapsed))
+                            mqtt_client.publish(f"kidslock/{slug}/remaining", str(rem))
+                            if new_elapsed >= limit: requests.post(f"http://{ip}:8081/lock", timeout=1)
+                        else:
+                            mqtt_client.publish(f"kidslock/{slug}/remaining", "∞")
                 except: pass
-                if online:
-                    if not no_limit:
-                        new_elapsed = elapsed + delta
-                        conn.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (new_elapsed, name))
-                        rem = int(max(0, current_limit - new_elapsed))
-                        mqtt_client.publish(f"kidslock/{slug}/remaining", str(rem))
-                        if new_elapsed >= current_limit:
-                            try: requests.post(f"http://{ip}:8081/lock", timeout=1)
-                            except: pass
-                    else:
-                        mqtt_client.publish(f"kidslock/{slug}/remaining", "∞")
-                        try: requests.post(f"http://{ip}:8081/unlock", timeout=1)
-                        except: pass
             conn.commit(); conn.close()
-        except Exception as e: logger.error(f"Monitor error: {e}")
+        except: pass
         time.sleep(30)
 
 threading.Thread(target=monitor_task, daemon=True).start()
 
-# --- API ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    day_key = datetime.now().strftime("%a").lower() + "_lim"
+    day_prefix = datetime.now().strftime("%a").lower()
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(f"SELECT name, ip, elapsed, no_limit, {day_key} FROM tv_configs").fetchall()
+    rows = conn.execute(f"SELECT name, ip, elapsed, no_limit, {day_prefix}_lim, {day_prefix}_bed FROM tv_configs").fetchall()
     conn.close()
-    tvs = [{"name": r[0], "ip": r[1], "elapsed": round(r[2],1), "no_limit": r[3], "limit": r[4], "remaining": int(max(0, r[4]-r[2]))} for r in rows]
+    tvs = [{"name": r[0], "ip": r[1], "elapsed": round(r[2],1), "no_limit": r[3], "limit": r[4], "bedtime": r[5], "remaining": int(max(0, r[4]-r[2]))} for r in rows]
     return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs})
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_ui(request: Request):
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT * FROM tv_configs").fetchall()
-    conn.close()
+    conn = sqlite3.connect(DB_PATH); rows = conn.execute("SELECT * FROM tv_configs").fetchall(); conn.close()
     tvs = []
     for r in rows:
-        tvs.append({"name":r[0], "ip":r[1], "no_limit":r[2], "mon":r[5], "tue":r[6], "wed":r[7], "thu":r[8], "fri":r[9], "sat":r[10], "sun":r[11]})
+        tvs.append({"name":r[0], "ip":r[1], "no_limit":r[2], "mon_lim":r[5], "mon_bed":r[6], "tue_lim":r[7], "tue_bed":r[8], "wed_lim":r[9], "wed_bed":r[10], "thu_lim":r[11], "thu_bed":r[12], "fri_lim":r[13], "fri_bed":r[14], "sat_lim":r[15], "sat_bed":r[16], "sun_lim":r[17], "sun_bed":r[18]})
     return templates.TemplateResponse("settings.html", {"request": request, "tvs": tvs})
 
 @app.post("/api/update_tv")
-async def update_tv(old_name: str = Form(...), new_name: str = Form(...), no_limit: str = Form(...),
-                    mon: str = Form(...), tue: str = Form(...), wed: str = Form(...), 
-                    thu: str = Form(...), fri: str = Form(...), sat: str = Form(...), sun: str = Form(...)):
-    try:
-        nl = 1 if no_limit == "1" else 0
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute("""UPDATE tv_configs SET name=?, no_limit=?, 
-                            mon_lim=?, tue_lim=?, wed_lim=?, thu_lim=?, fri_lim=?, sat_lim=?, sun_lim=? 
-                            WHERE name=?""", (new_name, nl, int(mon), int(tue), int(wed), int(thu), int(fri), int(sat), int(sun), old_name))
-            conn.commit()
-        publish_discovery()
-        return {"status": "ok"}
-    except Exception as e:
-        logger.error(f"Fout bij opslaan: {e}")
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-@app.post("/api/tv_action")
-async def tv_action(ip: str=Form(...), action: str=Form(...)):
-    if action == "reset":
-        with sqlite3.connect(DB_PATH) as conn: conn.execute("UPDATE tv_configs SET elapsed = 0 WHERE ip = ?", (ip,))
-        action = "unlock"
-    try: requests.post(f"http://{ip}:8081/{action}", timeout=2)
-    except: pass
-    return {"status": "ok"}
-
-@app.get("/api/discover")
-async def discover(request: Request):
-    base_ip = ".".join(request.client.host.split(".")[:3]) + "."
-    def check_dev(i):
-        target = f"{base_ip}{i}"; 
-        try:
-            with socket.create_connection((target, 8081), timeout=0.1):
-                r = requests.get(f"http://{target}:8081/device_info", timeout=0.2)
-                return {"name": r.json()['name'], "ip": target}
-        except: return None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as ex:
-        res = list(ex.map(check_dev, range(1, 255)))
-    return [r for r in res if r]
-
-@app.post("/api/pair_with_device")
-async def pair(ip: str=Form(...), code: str=Form(...)):
-    try:
-        r = requests.post(f"http://{ip}:8081/pair", data={"code": code, "api_key": secrets.token_hex(16)}, timeout=4)
-        if r.status_code == 200:
-            with sqlite3.connect(DB_PATH) as conn:
-                conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, no_limit, elapsed, last_reset) VALUES (?, ?, 0, 0, ?)", 
-                             (f"TV_{ip.split('.')[-1]}", ip, datetime.now().strftime("%Y-%m-%d")))
-            publish_discovery(); return {"status": "success"}
-    except: pass
-    return JSONResponse({"status": "error"}, status_code=400)
-
-@app.post("/api/delete_tv/{name}")
-async def delete(name: str):
-    with sqlite3.connect(DB_PATH) as conn: conn.execute("DELETE FROM tv_configs WHERE name=?", (name,))
-    return {"status": "ok"}
+async def update_tv(request: Request):
+    d = await request.form()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("UPDATE tv_configs SET name=?, no_limit=?, mon_lim=?, mon_bed=?, tue_lim=?, tue_bed=?, wed_lim=?, wed_bed=?, thu_lim=?, thu_bed=?, fri_lim=?, fri_bed=?, sat_lim=?, sat_bed=?, sun_lim=?, sun_bed=? WHERE name=?", (d['new_name'], int(d['no_limit']), d['mon_lim'], d['mon_bed'], d['tue_lim'], d['tue_bed'], d['wed_lim'], d['wed_bed'], d['thu_lim'], d['thu_bed'], d['fri_lim'], d['fri_bed'], d['sat_lim'], d['sat_bed'], d['sun_lim'], d['sun_bed'], d['old_name']))
+    publish_discovery(); return {"status": "ok"}
 
 if __name__ == "__main__": uvicorn.run(app, host="0.0.0.0", port=8000)
