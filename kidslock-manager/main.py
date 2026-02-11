@@ -79,17 +79,17 @@ def monitor_task():
                     elapsed = 0
                 try:
                     with socket.create_connection((ip, 8081), timeout=0.4):
-                        if now_time >= bedtime:
+                        if no_limit:
+                            mqtt_client.publish(f"kidslock/{slug}/remaining", "∞")
+                        elif now_time >= bedtime:
                             requests.post(f"http://{ip}:8081/lock", timeout=1)
                             mqtt_client.publish(f"kidslock/{slug}/remaining", "BEDTIME")
-                        elif not no_limit:
+                        else:
                             new_elapsed = elapsed + delta
                             conn.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (new_elapsed, name))
                             rem = int(max(0, limit - new_elapsed))
                             mqtt_client.publish(f"kidslock/{slug}/remaining", str(rem))
                             if new_elapsed >= limit: requests.post(f"http://{ip}:8081/lock", timeout=1)
-                        else:
-                            mqtt_client.publish(f"kidslock/{slug}/remaining", "∞")
                 except: pass
             conn.commit(); conn.close()
         except: pass
@@ -130,7 +130,17 @@ async def tv_action(ip: str = Form(...), action: str = Form(...)):
     try:
         requests.post(f"http://{ip}:8081/{action}", timeout=2)
         return {"status": "ok"}
-    except:
-        return {"status": "error"}
+    except: return {"status": "error"}
+
+@app.post("/api/pair_with_device")
+async def pair(ip: str=Form(...), code: str=Form(...)):
+    try:
+        r = requests.post(f"http://{ip}:8081/pair", data={"code": code, "api_key": secrets.token_hex(16)}, timeout=4)
+        if r.status_code == 200:
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, last_reset) VALUES (?, ?, ?)", (f"TV_{ip.split('.')[-1]}", ip, datetime.now().strftime("%Y-%m-%d")))
+            publish_discovery(); return {"status": "success"}
+    except: pass
+    return JSONResponse({"status": "error"}, status_code=400)
 
 if __name__ == "__main__": uvicorn.run(app, host="0.0.0.0", port=8000)

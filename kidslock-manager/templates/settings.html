@@ -6,69 +6,67 @@
     <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
-    <div class="container" style="max-width: 800px;">
-        <div class="d-flex justify-content-between mb-4">
-            <h2>⚙️ Instellingen</h2>
-            <a href="./" class="btn btn-outline-light">Terug</a>
+    <div class="container" style="max-width: 750px;">
+        <div class="d-flex justify-content-between align-items-center mb-5 mt-3">
+            <h2 class="fw-bold text-white">Instellingen</h2>
+            <a href="./" class="btn btn-outline-secondary btn-modern">Terug</a>
         </div>
         
         {% for tv in tvs %}
         {% set tv_index = loop.index %}
         <div class="tv-card" data-tv-idx="{{ tv_index }}" data-old-name="{{ tv.name }}">
             <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <input type="text" id="name_{{ tv_index }}" class="fs-4 fw-bold border-0 bg-transparent" value="{{ tv.name }}">
-                    <div class="text-muted small">{{ tv.ip }}</div>
-                </div>
-                <div>
-                    <button class="btn btn-outline-info me-2" onclick="toggleSchedule('{{ tv_index }}')">Schema 📅</button>
-                    <button class="btn btn-success" id="btn_{{ tv_index }}" onclick="saveTV('{{ tv_index }}')">Opslaan</button>
+                <input type="text" id="name_{{ tv_index }}" class="fs-4 fw-bold border-0 bg-transparent text-white" value="{{ tv.name }}">
+                <div class="d-flex gap-2">
+                    <button class="btn btn-dark btn-modern" onclick="toggle('{{ tv_index }}')">Schema 📅</button>
+                    <button class="btn btn-primary btn-modern" id="btn_{{ tv_index }}" onclick="save('{{ tv_index }}')">Opslaan</button>
                 </div>
             </div>
             
             <div id="sched_{{ tv_index }}" class="schedule-panel">
-                <div class="mb-3">
-                    <input type="checkbox" id="unl_{{ tv_index }}" {% if tv.no_limit %}checked{% endif %}> 
-                    <label>Unlimited minuten (bedtijd blijft actief)</label>
+                <div class="form-check form-switch mb-4">
+                    <input class="form-check-input" type="checkbox" id="unl_{{ tv_index }}" {% if tv.no_limit %}checked{% endif %}>
+                    <label class="form-check-label ms-2" for="unl_{{ tv_index }}">Unlimited (Bedtijd & Minuten uit)</label>
                 </div>
                 
-                {% for d_name, d_key in [('Ma','mon'), ('Di','tue'), ('Wo','wed'), ('Do','thu'), ('Vr','fri'), ('Za','sat'), ('Zo','sun')] %}
-                <div class="row mb-2 align-items-center">
-                    <div class="col-2 fw-bold text-info">{{ d_name }}</div>
-                    <div class="col-5"><input type="number" id="{{ d_key }}_lim_{{ tv_index }}" value="{{ tv[d_key+'_lim'] }}" class="w-100"></div>
-                    <div class="col-5"><input type="time" id="{{ d_key }}_bed_{{ tv_index }}" value="{{ tv[d_key+'_bed'] }}" class="w-100"></div>
+                {% for d_n, d_k in [('Ma','mon'), ('Di','tue'), ('Wo','wed'), ('Do','thu'), ('Vr','fri'), ('Za','sat'), ('Zo','sun')] %}
+                <div class="row mb-3 align-items-center">
+                    <div class="col-2 fw-bold text-primary">{{ d_n }}</div>
+                    <div class="col-5"><input type="number" id="{{ d_k }}_lim_{{ tv_index }}" value="{{ tv[d_k+'_lim'] }}" class="w-100" placeholder="Min"></div>
+                    <div class="col-5"><input type="time" id="{{ d_k }}_bed_{{ tv_index }}" value="{{ tv[d_k+'_bed'] }}" class="w-100"></div>
                 </div>
                 {% endfor %}
             </div>
         </div>
         {% endfor %}
+
+        <div class="tv-card mt-5" style="border-style: dashed; border-color: #444; background: transparent;">
+            <h5 class="fw-bold mb-4">Handmatig koppelen</h5>
+            <div class="row g-2">
+                <div class="col-6"><input type="text" id="p_ip" class="w-100" placeholder="TV IP (bijv. 192.168.1.50)"></div>
+                <div class="col-3"><input type="text" id="p_code" class="w-100" placeholder="Code"></div>
+                <div class="col-3"><button class="btn btn-success w-100 btn-modern" onclick="pair()">Koppel</button></div>
+            </div>
+        </div>
     </div>
 
     <script>
-        function toggleSchedule(idx) { 
-            var p = document.getElementById('sched_' + idx); 
-            if (p) p.style.display = (p.style.display === 'block') ? 'none' : 'block'; 
-        }
-
-        function saveTV(idx) {
-            var card = document.querySelector('[data-tv-idx="' + idx + '"]');
-            var oldName = card.getAttribute('data-old-name');
-            var btn = document.getElementById('btn_' + idx);
-            btn.innerText = "...";
-
-            var fd = new FormData();
-            fd.append('old_name', oldName);
-            fd.append('new_name', document.getElementById('name_' + idx).value);
-            fd.append('no_limit', document.getElementById('unl_' + idx).checked ? "1" : "0");
-
-            var days = ['mon','tue','wed','thu','fri','sat','sun'];
-            days.forEach(function(d) {
-                fd.append(d + '_lim', document.getElementById(d + '_lim_' + idx).value);
-                fd.append(d + '_bed', document.getElementById(d + '_bed_' + idx).value);
+        function toggle(i) { var s = document.getElementById('sched_'+i); s.style.display = s.style.display==='block' ? 'none':'block'; }
+        function save(i) {
+            const fd = new FormData();
+            fd.append('old_name', document.querySelector('[data-tv-idx="'+i+'"]').getAttribute('data-old-name'));
+            fd.append('new_name', document.getElementById('name_'+i).value);
+            fd.append('no_limit', document.getElementById('unl_'+i).checked ? "1" : "0");
+            ['mon','tue','wed','thu','fri','sat','sun'].forEach(d => {
+                fd.append(d+'_lim', document.getElementById(d+'_lim_'+i).value);
+                fd.append(d+'_bed', document.getElementById(d+'_bed_'+i).value);
             });
-
-            fetch('api/update_tv', { method: 'POST', body: fd }).then(function() { 
-                location.reload(); 
+            fetch('api/update_tv', { method: 'POST', body: fd }).then(() => location.reload());
+        }
+        function pair() {
+            const fd = new FormData(); fd.append('ip', document.getElementById('p_ip').value); fd.append('code', document.getElementById('p_code').value);
+            fetch('api/pair_with_device', { method: 'POST', body: fd }).then(r => r.json()).then(res => {
+                if(res.status==='success') location.reload(); else alert("Fout bij koppelen.");
             });
         }
     </script>
