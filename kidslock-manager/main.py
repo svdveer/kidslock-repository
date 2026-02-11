@@ -121,6 +121,12 @@ async def update_tv(request: Request):
         conn.execute("UPDATE tv_configs SET name=?, no_limit=?, mon_lim=?, mon_bed=?, tue_lim=?, tue_bed=?, wed_lim=?, wed_bed=?, thu_lim=?, thu_bed=?, fri_lim=?, fri_bed=?, sat_lim=?, sat_bed=?, sun_lim=?, sun_bed=? WHERE name=?", (d['new_name'], int(d['no_limit']), d['mon_lim'], d['mon_bed'], d['tue_lim'], d['tue_bed'], d['wed_lim'], d['wed_bed'], d['thu_lim'], d['thu_bed'], d['fri_lim'], d['fri_bed'], d['sat_lim'], d['sat_bed'], d['sun_lim'], d['sun_bed'], d['old_name']))
     publish_discovery(); return {"status": "ok"}
 
+@app.post("/api/delete_tv")
+async def delete_tv(name: str = Form(...)):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM tv_configs WHERE name = ?", (name,))
+    return {"status": "ok"}
+
 @app.post("/api/tv_action")
 async def tv_action(ip: str = Form(...), action: str = Form(...)):
     if action == "reset":
@@ -138,7 +144,8 @@ async def pair(ip: str=Form(...), code: str=Form(...)):
         r = requests.post(f"http://{ip}:8081/pair", data={"code": code, "api_key": secrets.token_hex(16)}, timeout=4)
         if r.status_code == 200:
             with sqlite3.connect(DB_PATH) as conn:
-                conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, last_reset) VALUES (?, ?, ?)", (f"TV_{ip.split('.')[-1]}", ip, datetime.now().strftime("%Y-%m-%d")))
+                tv_name = f"TV_{ip.split('.')[-1]}"
+                conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, last_reset) VALUES (?, ?, ?)", (tv_name, ip, datetime.now().strftime("%Y-%m-%d")))
             publish_discovery(); return {"status": "success"}
     except: pass
     return JSONResponse({"status": "error"}, status_code=400)
