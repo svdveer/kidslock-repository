@@ -11,12 +11,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
 
-# Haalt de gegevens op die je in de Add-on Options hebt ingevuld
-# Als dit leeg blijft, vullen we de fallback 'kidslocktv' in.
+# --- UNIVERSELE CONFIGURATIE ---
 MQTT_HOST = os.getenv("MQTT_HOST", "core-mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
-MQTT_USER = os.getenv("MQTT_USER", "kidslocktv") 
-MQTT_PASS = os.getenv("MQTT_PASSWORD", "je_wachtwoord_hier") # VUL HIER JE WACHTWOORD IN
+MQTT_USER = os.getenv("MQTT_USER", "kidslocktv")
+MQTT_PASS = os.getenv("MQTT_PASSWORD", "VUL_HIER_JE_WACHTWOORD_IN") 
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -38,13 +37,10 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# --- MQTT AUTHENTICATIE FIX ---
+# --- MQTT LOGICA ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-
-# We forceren hier de login gegevens
-if MQTT_USER:
+if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-    logger.info(f"MQTT: Authenticatie ingesteld voor {MQTT_USER}")
 
 def on_mqtt_message(client, userdata, msg):
     try:
@@ -52,7 +48,6 @@ def on_mqtt_message(client, userdata, msg):
         conn = sqlite3.connect(DB_PATH)
         tvs = conn.execute("SELECT ip, name, elapsed FROM tv_configs").fetchall()
         conn.close()
-        
         for ip, name, elapsed in tvs:
             slug = name.lower().replace(" ", "_")
             if topic == "kidslock/set" or topic == f"kidslock/{slug}/set":
@@ -73,30 +68,26 @@ def publish_discovery():
             slug = name.lower().replace(" ", "_")
             dev = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}", "manufacturer": "KidsLock"}
             base = {"device": dev, "availability_topic": f"kidslock/{slug}/status"}
-            
-            # Discovery berichten
             mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({**base, "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem"}), retain=True)
             mqtt_client.publish(f"kidslock/{slug}/status", "online", retain=True)
             mqtt_client.subscribe(f"kidslock/{slug}/set")
-        logger.info("MQTT Discovery gepubliceerd.")
-    except Exception as e: logger.error(f"Discovery Error: {e}")
+        logger.info("MQTT: Discovery & Subscriptions uitgevoerd.")
+    except: pass
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT: Verbinding geslaagd!")
+        logger.info(f"MQTT: ✅ Succesvol verbonden met {MQTT_HOST}")
         publish_discovery()
     else:
-        logger.error(f"MQTT: Verbinding geweigerd met code {rc}")
+        logger.error(f"MQTT: ❌ Verbinding geweigerd (RC: {rc})")
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_mqtt_message
 
-# Start verbinding
 try:
     mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60)
     mqtt_client.loop_start()
-except Exception as e:
-    logger.error(f"MQTT Start Error: {e}")
+except Exception as e: logger.error(f"MQTT Start Error: {e}")
 
 # --- MONITOR TASK ---
 def monitor_task():
@@ -126,7 +117,7 @@ def monitor_task():
 
 threading.Thread(target=monitor_task, daemon=True).start()
 
-# --- WEB ROUTES (ongewijzigd) ---
+# --- ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     day = datetime.now().strftime("%a").lower()
