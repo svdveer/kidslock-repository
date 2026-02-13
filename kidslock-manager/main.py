@@ -1,4 +1,4 @@
-import logging, threading, time, sqlite3, requests, socket, json, secrets, os
+import logging, threading, time, sqlite3, requests, socket, json, os
 from datetime import datetime
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Request, Form
@@ -13,7 +13,6 @@ logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
 OPTIONS_PATH = "/data/options.json"
 
-# Haal MQTT gegevens op uit options.json
 try:
     with open(OPTIONS_PATH, 'r') as f: options = json.load(f)
 except: options = {}
@@ -28,7 +27,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute('''CREATE TABLE IF NOT EXISTS tv_configs 
                     (name TEXT PRIMARY KEY, ip TEXT, no_limit INTEGER DEFAULT 0, 
-                     elapsed REAL DEFAULT 0, last_reset TEXT)''')
+                     elapsed REAL DEFAULT 0, last_reset TEXT, locked INTEGER DEFAULT 0)''')
     cursor = conn.execute("PRAGMA table_info(tv_configs)")
     cols = [column[1] for column in cursor.fetchall()]
     days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
@@ -57,73 +56,84 @@ def on_mqtt_message(client, userdata, msg):
         conn.close()
         for ip, name, elapsed in tvs:
             slug = name.lower().replace(" ", "_")
-            if topic == "kidslock/set" or topic == f"kidslock/{slug}/set":
+            if topic == f"kidslock/{slug}/set":
                 if payload == "+30":
-                    new_elapsed = max(0, float(elapsed) - 30)
                     with sqlite3.connect(DB_PATH) as c:
-                        c.execute("UPDATE tv_configs SET elapsed = ? WHERE ip = ?", (new_elapsed, ip))
+                        c.execute("UPDATE tv_configs SET elapsed = max(0, elapsed - 30) WHERE ip = ?", (ip,))
                 elif payload == "reset":
                     with sqlite3.connect(DB_PATH) as c:
-                        c.execute("UPDATE tv_configs SET elapsed = 0 WHERE ip = ?", (ip,))
+                        c.execute("UPDATE tv_configs SET elapsed = 0, locked = 0 WHERE ip = ?", (ip,))
                     requests.post(f"http://{ip}:8081/unlock", timeout=2)
-                elif payload in ["lock", "unlock"]:
-                    requests.post(f"http://{ip}:8081/{payload}", timeout=2)
+                elif payload in ["lock", "unlock", "on", "off"]:
+                    action = "lock" if payload in ["lock", "on"] else "unlock"
+                    requests.post(f"http://{ip}:8081/{action}", timeout=2)
+                    with sqlite3.connect(DB_PATH) as c:
+                        c.execute("UPDATE tv_configs SET locked = ? WHERE ip = ?", (1 if action == "lock" else 0, ip))
+                    client.publish(f"kidslock/{slug}/state", "ON" if action == "lock" else "OFF", retain=True)
     except Exception as e: logger.error(f"MQTT Error: {e}")
 
 def publish_discovery():
     try:
         conn = sqlite3.connect(DB_PATH); tvs = conn.execute("SELECT name FROM tv_configs").fetchall(); conn.close()
-        mqtt_client.subscribe("kidslock/set")
         for (name,) in tvs:
             slug = name.lower().replace(" ", "_")
-            dev = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}", "manufacturer": "KidsLock", "model": "v2.5"}
+            dev = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}", "manufacturer": "KidsLock", "model": "v2.6"}
             base = {"device": dev, "availability_topic": f"kidslock/{slug}/status"}
             
-            # 1. Sensor
+            # De Switch (Het schuifje)
+            mqtt_client.publish(f"homeassistant/switch/kidslock_{slug}/config", json.dumps({
+                **base, "name": "Ouderlijk Slot", "command_topic": f"kidslock/{slug}/set",
+                "state_topic": f"kidslock/{slug}/state", "unique_id": f"kidslock_{slug}_sw",
+                "payload_on": "lock", "payload_off": "unlock", "icon": "mdi:shield-lock"
+            }), retain=True)
+
+            # Sensor & Buttons
             mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({**base, "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem", "icon": "mdi:timer-sand"}), retain=True)
-            # 2. Bonus Button
             mqtt_client.publish(f"homeassistant/button/kidslock_{slug}_add/config", json.dumps({**base, "name": "Geef 30 min extra", "command_topic": f"kidslock/{slug}/set", "payload_press": "+30", "unique_id": f"kidslock_{slug}_btn_add", "icon": "mdi:plus-circle"}), retain=True)
-            # 3. Reset Button
             mqtt_client.publish(f"homeassistant/button/kidslock_{slug}_reset/config", json.dumps({**base, "name": "Reset Tijd", "command_topic": f"kidslock/{slug}/set", "payload_press": "reset", "unique_id": f"kidslock_{slug}_btn_reset", "icon": "mdi:refresh"}), retain=True)
-            # 4. Lock Switch
-            mqtt_client.publish(f"homeassistant/switch/kidslock_{slug}_lock/config", json.dumps({**base, "name": "Ouderlijk Slot", "command_topic": f"kidslock/{slug}/set", "state_topic": f"kidslock/{slug}/state", "payload_on": "lock", "payload_off": "unlock", "unique_id": f"kidslock_{slug}_sw", "icon": "mdi:shield-lock"}), retain=True)
 
             mqtt_client.publish(f"kidslock/{slug}/status", "online", retain=True)
             mqtt_client.subscribe(f"kidslock/{slug}/set")
-        logger.info("MQTT: Volledige Discovery verzonden.")
     except: pass
 
-mqtt_client.on_connect = lambda c, u, f, rc, p=None: publish_discovery() if rc==0 else logger.error(f"MQTT Auth Fout: {rc}")
+mqtt_client.on_connect = lambda c, u, f, rc, p=None: publish_discovery() if rc==0 else None
 mqtt_client.on_message = on_mqtt_message
 
 try:
-    mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60)
-    mqtt_client.loop_start()
+    mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60); mqtt_client.loop_start()
 except: pass
 
-# --- MONITOR LOOP ---
+# --- MONITOR TASK ---
 def monitor_task():
     last_tick = time.time()
     while True:
         try:
             now = datetime.now(); day = now.strftime("%a").lower(); delta = min(1.0, (time.time() - last_tick) / 60.0); last_tick = time.time()
             conn = sqlite3.connect(DB_PATH)
-            tvs = conn.execute(f"SELECT name, ip, no_limit, elapsed, last_reset, CAST({day}_lim AS REAL), {day}_bed FROM tv_configs").fetchall()
-            for name, ip, no_limit, elapsed, last_reset, limit, bedtime in tvs:
+            tvs = conn.execute(f"SELECT name, ip, no_limit, elapsed, last_reset, CAST({day}_lim AS REAL), {day}_bed, locked FROM tv_configs").fetchall()
+            for name, ip, no_limit, elapsed, last_reset, limit, bedtime, manual_locked in tvs:
                 slug = name.lower().replace(" ", "_")
                 if last_reset != now.strftime("%Y-%m-%d"):
-                    conn.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ? WHERE name = ?", (now.strftime("%Y-%m-%d"), name)); elapsed = 0
+                    conn.execute("UPDATE tv_configs SET elapsed = 0, last_reset = ?, locked = 0 WHERE name = ?", (now.strftime("%Y-%m-%d"), name)); elapsed = 0
+                
                 try:
                     with socket.create_connection((ip, 8081), timeout=0.4):
+                        is_past_bedtime = now.strftime("%H:%M") >= bedtime
+                        time_up = not no_limit and (elapsed >= limit)
+                        auto_lock = is_past_bedtime or time_up
+                        current_lock = manual_locked or auto_lock
+                        
+                        action = "lock" if current_lock else "unlock"
+                        requests.post(f"http://{ip}:8081/{action}", timeout=1)
+                        mqtt_client.publish(f"kidslock/{slug}/state", "ON" if current_lock else "OFF")
+
                         if no_limit: mqtt_client.publish(f"kidslock/{slug}/remaining", "∞")
-                        elif now.strftime("%H:%M") >= bedtime: 
-                            requests.post(f"http://{ip}:8081/lock", timeout=1)
-                            mqtt_client.publish(f"kidslock/{slug}/remaining", "BEDTIME")
+                        elif is_past_bedtime: mqtt_client.publish(f"kidslock/{slug}/remaining", "BEDTIME")
+                        elif time_up: mqtt_client.publish(f"kidslock/{slug}/remaining", "0")
                         else:
-                            new_el = float(elapsed) + delta
+                            new_el = float(elapsed) + delta if not current_lock else float(elapsed)
                             conn.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (new_el, name))
                             mqtt_client.publish(f"kidslock/{slug}/remaining", str(int(max(0, float(limit) - new_el))))
-                            if new_el >= float(limit): requests.post(f"http://{ip}:8081/lock", timeout=1)
                 except: pass
             conn.commit(); conn.close()
         except: pass
@@ -135,8 +145,8 @@ threading.Thread(target=monitor_task, daemon=True).start()
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     day = datetime.now().strftime("%a").lower()
-    conn = sqlite3.connect(DB_PATH); rows = conn.execute(f"SELECT name, ip, elapsed, no_limit, CAST({day}_lim AS REAL), {day}_bed FROM tv_configs").fetchall(); conn.close()
-    tvs = [{"name": r[0], "ip": r[1], "elapsed": round(float(r[2]), 1), "no_limit": r[3], "limit": int(float(r[4])), "bedtime": r[5], "remaining": int(max(0, float(r[4])-float(r[2])))} for r in rows]
+    conn = sqlite3.connect(DB_PATH); rows = conn.execute(f"SELECT name, ip, elapsed, no_limit, CAST({day}_lim AS REAL), {day}_bed, locked FROM tv_configs").fetchall(); conn.close()
+    tvs = [{"name": r[0], "ip": r[1], "elapsed": round(float(r[2]), 1), "no_limit": r[3], "limit": int(float(r[4])), "bedtime": r[5], "remaining": int(max(0, float(r[4])-float(r[2]))), "locked": r[6]} for r in rows]
     return templates.TemplateResponse("index.html", {"request": request, "tvs": tvs})
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -152,9 +162,12 @@ async def update_tv(request: Request):
         conn.execute("UPDATE tv_configs SET name=?, no_limit=?, mon_lim=?, mon_bed=?, tue_lim=?, tue_bed=?, wed_lim=?, wed_bed=?, thu_lim=?, thu_bed=?, fri_lim=?, fri_bed=?, sat_lim=?, sat_bed=?, sun_lim=?, sun_bed=? WHERE name=?", (d['new_name'], int(d['no_limit']), d['mon_lim'], d['mon_bed'], d['tue_lim'], d['tue_bed'], d['wed_lim'], d['wed_bed'], d['thu_lim'], d['thu_bed'], d['fri_lim'], d['fri_bed'], d['sat_lim'], d['sat_bed'], d['sun_lim'], d['sun_bed'], d['old_name']))
     publish_discovery(); return {"status": "ok"}
 
-@app.post("/api/delete_tv")
-async def delete_tv(name: str = Form(...)):
-    with sqlite3.connect(DB_PATH) as conn: conn.execute("DELETE FROM tv_configs WHERE name = ?", (name,))
+@app.post("/api/action/{ip}")
+async def api_action(ip: str, action: str = Form(...)):
+    # Deze route is voor de webinterface toggles
+    slug_res = requests.post(f"http://{ip}:8081/{action}", timeout=2)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("UPDATE tv_configs SET locked = ? WHERE ip = ?", (1 if action == "lock" else 0, ip))
     return {"status": "ok"}
 
 if __name__ == "__main__": uvicorn.run(app, host="0.0.0.0", port=8000)

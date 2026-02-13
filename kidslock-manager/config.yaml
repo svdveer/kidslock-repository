@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "2.5.8"
+version: "2.6.0"
 slug: "kidslock-manager"
-description: "v2.5.8 - Hybride Fix (v1.7 MQTT + v2.5 Features)"
+description: "v2.6.0 - MQTT fixes"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64

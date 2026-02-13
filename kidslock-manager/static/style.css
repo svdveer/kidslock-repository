@@ -1,14 +1,52 @@
-:root {
-    --bg: #0d1117; --card: #161b22; --border: #30363d; --accent: #58a6ff;
-    --danger: #f85149; --success: #3fb950; --warn: #d29922; --text: #c9d1d9;
+/* static/style.css */
+body { 
+    background: #121212; 
+    color: #e0e0e0; 
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
 }
-body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; padding: 20px; }
-.tv-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
-.time-display { font-size: 3.5rem; font-weight: 700; color: #fff; }
-.btn-modern { border-radius: 8px; font-weight: 600; padding: 10px 16px; text-transform: uppercase; font-size: 0.75rem; transition: 0.2s; border: 1px solid transparent; }
-.progress-box { height: 8px; background: #30363d; border-radius: 4px; overflow: hidden; margin: 20px 0; }
-.progress-fill { background: var(--accent); height: 100%; width: 0%; transition: width 0.6s ease; }
-.bedtime-tag { background: rgba(210, 153, 34, 0.15); color: var(--warn); padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; border: 1px solid rgba(210, 153, 34, 0.3); }
-.schedule-panel { background: rgba(0,0,0,0.2); border-radius: 10px; padding: 20px; display: none; margin-top: 20px; border: 1px dashed var(--border); }
-input { background: #0d1117; border: 1px solid var(--border); color: #fff; border-radius: 6px; padding: 8px; }
-.btn-outline-danger:hover { background: var(--danger); color: white; }
+
+.tv-card { 
+    background: #1e1e1e; 
+    border-radius: 20px; 
+    padding: 24px; 
+    margin-bottom: 20px; 
+    border: 1px solid #333;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.status-badge { 
+    font-size: 0.85rem; 
+    padding: 6px 14px; 
+    border-radius: 50px; 
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+/* De 'Family Link' Blauwe Knop */
+.btn-bonus { 
+    background: #4285f4; 
+    color: white; 
+    border: none; 
+    border-radius: 12px; 
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.btn-bonus:hover {
+    background: #357ae8;
+    color: white;
+}
+
+/* De Toggle Switch Styling */
+.form-switch .form-check-input { 
+    width: 3.5em; 
+    height: 1.8em; 
+    cursor: pointer;
+    background-color: #444;
+    border-color: #555;
+}
+
+.form-switch .form-check-input:checked {
+    background-color: #34a853; /* Groen als hij 'op slot' is */
+    border-color: #34a853;
+}

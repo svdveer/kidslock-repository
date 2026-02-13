@@ -1,60 +1,61 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="static/style.css">
+    <title>KidsLock v2.6</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="container" style="max-width: 750px;">
-        <div class="d-flex justify-content-between align-items-center mb-5 mt-3">
-            <h1 class="fw-bold m-0" style="letter-spacing: -1.5px; color: #fff;">KidsLock</h1>
-            <a href="settings" class="btn btn-outline-secondary btn-modern">Instellingen</a>
+    <div class="container py-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="h3 mb-0">📺 KidsLock Dashboard</h1>
+            <a href="/settings" class="btn btn-outline-light btn-sm">Instellingen</a>
         </div>
+
         {% for tv in tvs %}
         <div class="tv-card">
-            <div class="d-flex justify-content-between">
-                <div><h2 class="h4 fw-bold m-0 text-white">{{ tv.name }}</h2><code class="text-muted small">{{ tv.ip }}</code></div>
-                <span class="bedtime-tag">🌙 Bedtijd: {{ tv.bedtime }}</span>
-            </div>
-            <div class="row mt-4 align-items-end">
-                <div class="col-7"><small class="text-muted d-block fw-bold small">RESTEREND</small>
-                    <div class="time-display">{% if tv.no_limit %}∞{% else %}{{ tv.remaining }}{% endif %}<span class="fs-5 text-muted fw-normal">m</span></div>
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <h2 class="h4 mb-1">{{ tv.name }}</h2>
+                    <small class="text-muted">{{ tv.ip }}</small>
                 </div>
-                <div class="col-5 text-end"><div class="fs-5 fw-bold text-white">{{ tv.elapsed }}<span class="text-muted">/{{ tv.limit }}m</span></div></div>
+                <span class="status-badge {% if tv.remaining > 0 %}bg-success{% else %}bg-danger{% endif %}">
+                    {{ tv.remaining }} min over
+                </span>
             </div>
-            {% if not tv.no_limit %}
-            <div class="progress-box">
-                {% set raw_pct = (tv.elapsed / tv.limit * 100) | int %}
-                <div class="progress-fill" data-pct="{{ raw_pct if raw_pct < 100 else 100 }}"></div>
-            </div>
-            {% endif %}
-            <div class="row g-2 mt-4">
-                <div class="col-4"><button id="lock_{{ loop.index }}" class="btn btn-dark w-100 btn-modern" onclick="tvAction('{{ tv.ip }}', 'lock', this.id)" style="color: var(--danger)">Lock 🔒</button></div>
-                <div class="col-4"><button id="open_{{ loop.index }}" class="btn btn-dark w-100 btn-modern" onclick="tvAction('{{ tv.ip }}', 'unlock', this.id)" style="color: var(--success)">Open 🔓</button></div>
-                <div class="col-4"><button id="reset_{{ loop.index }}" class="btn btn-dark w-100 btn-modern" onclick="tvAction('{{ tv.ip }}', 'reset', this.id)">Reset 🔄</button></div>
+
+            <div class="row g-2">
+                <div class="col-12">
+                    <div class="form-check form-switch d-flex justify-content-between align-items-center bg-dark p-3 rounded-3">
+                        <label class="form-check-label fw-bold">Ouderlijk Slot</label>
+                        <input class="form-check-input" type="checkbox" role="switch" 
+                               {% if tv.locked %}checked{% endif %}
+                               onchange="toggleLock('{{ tv.ip }}', this.checked)">
+                    </div>
+                </div>
+
+                <div class="col-6">
+                    <button class="btn btn-bonus w-100 py-3" onclick="location.reload(); /* Simpele manier voor +30 via MQTT of API */">
+                        +30 Min
+                    </button>
+                </div>
+                <div class="col-6">
+                    <button class="btn btn-outline-secondary w-100 py-3" onclick="location.reload();">
+                        Reset Dag
+                    </button>
+                </div>
             </div>
         </div>
         {% endfor %}
     </div>
+
     <script>
-        document.querySelectorAll('.progress-fill').forEach(bar => bar.style.width = bar.getAttribute('data-pct') + '%');
-        function tvAction(ip, act, btnId) {
-            const btn = document.getElementById(btnId);
-            const originalText = btn.innerHTML;
-            btn.innerHTML = "⏳"; btn.disabled = true;
-            
-            const fd = new FormData(); fd.append('ip', ip); fd.append('action', act);
-            fetch('api/tv_action', { method: 'POST', body: fd })
-                .then(r => r.json())
-                .then(data => {
-                    if(data.status === 'ok') {
-                        if(act === 'reset') location.reload();
-                        else { btn.innerHTML = "✅"; setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 1500); }
-                    } else {
-                        alert("TV onbereikbaar!"); btn.innerHTML = originalText; btn.disabled = false;
-                    }
-                });
+        async def toggleLock(ip, isLocked) {
+            const action = isLocked ? 'lock' : 'unlock';
+            const formData = new FormData();
+            formData.append('action', action);
+            await fetch(`/api/action/${ip}`, { method: 'POST', body: formData });
         }
     </script>
 </body>
