@@ -13,7 +13,7 @@ logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
 OPTIONS_PATH = "/data/options.json"
 
-# Haal MQTT gegevens op exact de v1.7 manier op
+# Haal MQTT gegevens op uit options.json
 try:
     with open(OPTIONS_PATH, 'r') as f: options = json.load(f)
 except: options = {}
@@ -21,7 +21,7 @@ except: options = {}
 mqtt_conf = options.get("mqtt", {})
 MQTT_HOST = mqtt_conf.get("host", "core-mosquitto")
 MQTT_PORT = mqtt_conf.get("port", 1883)
-MQTT_USER = mqtt_conf.get("username") or mqtt_conf.get("user")
+MQTT_USER = mqtt_conf.get("username")
 MQTT_PASS = mqtt_conf.get("password")
 
 def init_db():
@@ -30,12 +30,12 @@ def init_db():
                     (name TEXT PRIMARY KEY, ip TEXT, no_limit INTEGER DEFAULT 0, 
                      elapsed REAL DEFAULT 0, last_reset TEXT)''')
     cursor = conn.execute("PRAGMA table_info(tv_configs)")
-    existing_cols = [column[1] for column in cursor.fetchall()]
+    cols = [column[1] for column in cursor.fetchall()]
     days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
     for d in days:
-        if f"{d}_lim" not in existing_cols:
+        if f"{d}_lim" not in cols:
             conn.execute(f"ALTER TABLE tv_configs ADD COLUMN {d}_lim INTEGER DEFAULT 120")
-        if f"{d}_bed" not in existing_cols:
+        if f"{d}_bed" not in cols:
             conn.execute(f"ALTER TABLE tv_configs ADD COLUMN {d}_bed TEXT DEFAULT '20:00'")
     conn.commit(); conn.close()
 
@@ -44,7 +44,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# --- MQTT CLIENT (v1.7 Logica) ---
+# --- MQTT CLIENT LOGICA ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
@@ -58,10 +58,14 @@ def on_mqtt_message(client, userdata, msg):
         for ip, name, elapsed in tvs:
             slug = name.lower().replace(" ", "_")
             if topic == "kidslock/set" or topic == f"kidslock/{slug}/set":
-                if payload.startswith("+"):
-                    bonus = int(payload.replace("+", ""))
+                if payload == "+30":
+                    new_elapsed = max(0, float(elapsed) - 30)
                     with sqlite3.connect(DB_PATH) as c:
-                        c.execute("UPDATE tv_configs SET elapsed = ? WHERE ip = ?", (max(0, float(elapsed) - bonus), ip))
+                        c.execute("UPDATE tv_configs SET elapsed = ? WHERE ip = ?", (new_elapsed, ip))
+                elif payload == "reset":
+                    with sqlite3.connect(DB_PATH) as c:
+                        c.execute("UPDATE tv_configs SET elapsed = 0 WHERE ip = ?", (ip,))
+                    requests.post(f"http://{ip}:8081/unlock", timeout=2)
                 elif payload in ["lock", "unlock"]:
                     requests.post(f"http://{ip}:8081/{payload}", timeout=2)
     except Exception as e: logger.error(f"MQTT Error: {e}")
@@ -72,22 +76,24 @@ def publish_discovery():
         mqtt_client.subscribe("kidslock/set")
         for (name,) in tvs:
             slug = name.lower().replace(" ", "_")
-            dev = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}", "manufacturer": "KidsLock"}
+            dev = {"identifiers": [f"kidslock_{slug}"], "name": f"KidsLock {name}", "manufacturer": "KidsLock", "model": "v2.5"}
             base = {"device": dev, "availability_topic": f"kidslock/{slug}/status"}
-            mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({**base, "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem"}), retain=True)
+            
+            # 1. Sensor
+            mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({**base, "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem", "icon": "mdi:timer-sand"}), retain=True)
+            # 2. Bonus Button
+            mqtt_client.publish(f"homeassistant/button/kidslock_{slug}_add/config", json.dumps({**base, "name": "Geef 30 min extra", "command_topic": f"kidslock/{slug}/set", "payload_press": "+30", "unique_id": f"kidslock_{slug}_btn_add", "icon": "mdi:plus-circle"}), retain=True)
+            # 3. Reset Button
+            mqtt_client.publish(f"homeassistant/button/kidslock_{slug}_reset/config", json.dumps({**base, "name": "Reset Tijd", "command_topic": f"kidslock/{slug}/set", "payload_press": "reset", "unique_id": f"kidslock_{slug}_btn_reset", "icon": "mdi:refresh"}), retain=True)
+            # 4. Lock Switch
+            mqtt_client.publish(f"homeassistant/switch/kidslock_{slug}_lock/config", json.dumps({**base, "name": "Ouderlijk Slot", "command_topic": f"kidslock/{slug}/set", "state_topic": f"kidslock/{slug}/state", "payload_on": "lock", "payload_off": "unlock", "unique_id": f"kidslock_{slug}_sw", "icon": "mdi:shield-lock"}), retain=True)
+
             mqtt_client.publish(f"kidslock/{slug}/status", "online", retain=True)
             mqtt_client.subscribe(f"kidslock/{slug}/set")
-        logger.info("MQTT: Discovery verzonden.")
+        logger.info("MQTT: Volledige Discovery verzonden.")
     except: pass
 
-def on_connect(client, userdata, flags, rc, properties=None):
-    if rc == 0:
-        logger.info(f"MQTT: ✅ Verbonden met {MQTT_HOST}")
-        publish_discovery()
-    else:
-        logger.error(f"MQTT: ❌ Geweigerd (RC: {rc})")
-
-mqtt_client.on_connect = on_connect
+mqtt_client.on_connect = lambda c, u, f, rc, p=None: publish_discovery() if rc==0 else logger.error(f"MQTT Auth Fout: {rc}")
 mqtt_client.on_message = on_mqtt_message
 
 try:
@@ -95,7 +101,7 @@ try:
     mqtt_client.loop_start()
 except: pass
 
-# --- MONITOR LOOP (v2 Verbeterd) ---
+# --- MONITOR LOOP ---
 def monitor_task():
     last_tick = time.time()
     while True:
