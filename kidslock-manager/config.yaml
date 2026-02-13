@@ -1,6 +1,6 @@
 name: "KidsLock Manager"
-description: "Family-stijl ouderlijk toezicht voor Android TV"
-version: "2.5.1"
+description: "Ouderlijk toezicht voor Android TV"
+version: "2.5.4"
 slug: "kidslock-manager"
 arch:
   - aarch64
@@ -24,6 +24,6 @@ schema:
 ports:
   8000/tcp: 8000
 webui: "http://[HOST]:[PORT:8000]/"
+ingress: true
+ingress_port: 8000
 mqtt: true
-services:
-  - mqtt:need
