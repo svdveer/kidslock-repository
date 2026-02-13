@@ -7,23 +7,22 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
+# --- INITIALISATIE & LOGGING ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
+OPTIONS_PATH = "/data/options.json"
 
-# --- DE ULTIEME MQTT DETECTIE ---
-# We proberen alle mogelijke variaties die HA Add-ons gebruiken
-MQTT_HOST = os.getenv("MQTT_HOST") or os.getenv("mqtt_host") or "core-mosquitto"
-MQTT_PORT = int(os.getenv("MQTT_PORT") or os.getenv("mqtt_port") or 1883)
-MQTT_USER = os.getenv("MQTT_USER") or os.getenv("mqtt_user") or "kidslocktv"
+# Haal MQTT gegevens op exact de v1.7 manier op
+try:
+    with open(OPTIONS_PATH, 'r') as f: options = json.load(f)
+except: options = {}
 
-# Hier zit de fix: we checken ook op 'mqtt_password' (kleine letters) 
-# en een hardcoded fallback als laatste redmiddel
-MQTT_PASS = os.getenv("MQTT_PASSWORD") or os.getenv("mqtt_password")
-
-if not MQTT_PASS:
-    # VUL HIER HANDMATIG JE WACHTWOORD IN TUSSEN DE QUOTES ALS TEST
-    MQTT_PASS = "JOUW_WACHTWOORD_HIER" 
+mqtt_conf = options.get("mqtt", {})
+MQTT_HOST = mqtt_conf.get("host", "core-mosquitto")
+MQTT_PORT = mqtt_conf.get("port", 1883)
+MQTT_USER = mqtt_conf.get("username") or mqtt_conf.get("user")
+MQTT_PASS = mqtt_conf.get("password")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -45,14 +44,10 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# --- MQTT SETUP ---
+# --- MQTT CLIENT (v1.7 Logica) ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-    logger.info(f"MQTT: Probeert te verbinden als '{MQTT_USER}'")
-else:
-    logger.error("MQTT: NOG STEEDS GEEN WACHTWOORD! Check de code.")
 
 def on_mqtt_message(client, userdata, msg):
     try:
@@ -82,15 +77,15 @@ def publish_discovery():
             mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({**base, "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem"}), retain=True)
             mqtt_client.publish(f"kidslock/{slug}/status", "online", retain=True)
             mqtt_client.subscribe(f"kidslock/{slug}/set")
-        logger.info("MQTT: ✅ Discovery verzonden.")
+        logger.info("MQTT: Discovery verzonden.")
     except: pass
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT: ✅✅✅ VERBONDEN!")
+        logger.info(f"MQTT: ✅ Verbonden met {MQTT_HOST}")
         publish_discovery()
     else:
-        logger.error(f"MQTT: ❌ GEWEIGERD (RC: {rc}).")
+        logger.error(f"MQTT: ❌ Geweigerd (RC: {rc})")
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_mqtt_message
@@ -98,14 +93,14 @@ mqtt_client.on_message = on_mqtt_message
 try:
     mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60)
     mqtt_client.loop_start()
-except Exception as e: logger.error(f"MQTT Start Error: {e}")
+except: pass
 
-# --- MONITOR TASK (Ongewijzigd) ---
+# --- MONITOR LOOP (v2 Verbeterd) ---
 def monitor_task():
     last_tick = time.time()
     while True:
         try:
-            now = datetime.now(); day = now.strftime("%a").lower(); delta = (time.time() - last_tick) / 60.0; last_tick = time.time()
+            now = datetime.now(); day = now.strftime("%a").lower(); delta = min(1.0, (time.time() - last_tick) / 60.0); last_tick = time.time()
             conn = sqlite3.connect(DB_PATH)
             tvs = conn.execute(f"SELECT name, ip, no_limit, elapsed, last_reset, CAST({day}_lim AS REAL), {day}_bed FROM tv_configs").fetchall()
             for name, ip, no_limit, elapsed, last_reset, limit, bedtime in tvs:
@@ -130,7 +125,7 @@ def monitor_task():
 
 threading.Thread(target=monitor_task, daemon=True).start()
 
-# --- WEB ROUTES (Ongewijzigd) ---
+# --- ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     day = datetime.now().strftime("%a").lower()
@@ -155,15 +150,5 @@ async def update_tv(request: Request):
 async def delete_tv(name: str = Form(...)):
     with sqlite3.connect(DB_PATH) as conn: conn.execute("DELETE FROM tv_configs WHERE name = ?", (name,))
     return {"status": "ok"}
-
-@app.post("/api/pair_with_device")
-async def pair(ip: str=Form(...), code: str=Form(...)):
-    try:
-        r = requests.post(f"http://{ip}:8081/pair", data={"code": code, "api_key": secrets.token_hex(16)}, timeout=4)
-        if r.status_code == 200:
-            with sqlite3.connect(DB_PATH) as conn: conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, last_reset) VALUES (?, ?, ?)", (f"TV_{ip.split('.')[-1]}", ip, datetime.now().strftime("%Y-%m-%d")))
-            publish_discovery(); return {"status": "success"}
-    except: pass
-    return JSONResponse({"status": "error"}, status_code=400)
 
 if __name__ == "__main__": uvicorn.run(app, host="0.0.0.0", port=8000)
