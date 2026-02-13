@@ -23,10 +23,9 @@
             border-radius: 20px; 
             border: 1px solid #dadce0;
             margin-bottom: 15px;
-            overflow: hidden; /* Nodig voor strakke hoeken bij inklappen */
+            overflow: hidden;
         }
 
-        /* De header waar je op klikt */
         .card-header-toggle {
             padding: 20px 25px;
             background: #fff;
@@ -40,10 +39,9 @@
 
         .card-header-toggle:hover { background: #f1f3f4; }
 
-        /* Het gedeelte dat in/uitklapt */
         .card-content {
             padding: 0 25px 25px 25px;
-            display: none; /* Standaard dicht */
+            display: none;
         }
 
         .card-content.show { display: block; }
@@ -62,6 +60,8 @@
             border-bottom: 1px solid #f1f3f4;
         }
 
+        .day-row:last-child { border-bottom: none; }
+
         .form-label { font-size: 0.85rem; font-weight: 600; color: #5f6368; margin-bottom: 2px; }
         .form-control { border-radius: 8px; font-size: 0.9rem; }
 
@@ -76,12 +76,35 @@
             margin-top: 15px;
         }
 
+        /* Styling voor de pairing knop */
+        .btn-pair {
+            background: #202124;
+            color: white;
+            border-radius: 100px;
+            padding: 12px;
+            border: none;
+            font-weight: 600;
+            width: 100%;
+        }
+
         .arrow-icon {
             transition: transform 0.3s;
             font-size: 0.8rem;
         }
 
         .show + .arrow-icon { transform: rotate(180deg); }
+        
+        .pairing-badge {
+            background: #e8f0fe;
+            color: var(--primary);
+            font-size: 0.7rem;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            display: inline-block;
+        }
     </style>
 </head>
 <body>
@@ -90,6 +113,35 @@
         
         <h1 class="fw-bold mb-4">Instellingen</h1>
 
+        <div class="settings-card shadow-sm border-primary" style="border-width: 2px;">
+            <div class="card-header-toggle" onclick="toggleCard('pairing-card', this)">
+                <div>
+                    <span class="pairing-badge">Nieuwe Koppeling</span>
+                    <div class="fw-bold text-dark">Apparaat zoeken op netwerk</div>
+                </div>
+                <div class="arrow-icon text-primary">▼</div>
+            </div>
+            
+            <div id="pairing-card" class="card-content {% if not tvs %}show{% endif %}" {% if not tvs %}style="display: block;"{% endif %}>
+                <p class="text-muted small mb-3">Gebruik het IP-adres als tijdelijke brug om de TV te vinden. Na koppeling herkent de add-on de TV aan zijn unieke ID.</p>
+                <form onsubmit="pairDevice(event)">
+                    <div class="row g-2 mb-3">
+                        <div class="col-7">
+                            <label class="form-label">Huidig IP-adres TV</label>
+                            <input type="text" class="form-control" name="ip" placeholder="bijv. 192.168.1.50" required>
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label">Code op TV</label>
+                            <input type="text" class="form-control" name="code" placeholder="6 cijfers" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-pair shadow-sm">Koppeling Starten</button>
+                </form>
+            </div>
+        </div>
+
+        <hr class="my-4">
+
         {% for tv in tvs %}
         <div class="settings-card shadow-sm">
             <div class="card-header-toggle" onclick="toggleCard('card-{{ loop.index }}', this)">
@@ -97,7 +149,7 @@
                 <div class="arrow-icon text-muted">▼</div>
             </div>
             
-            <div id="card-{{ loop.index }}" class="card-content {% if loop.first %}show{% endif %}">
+            <div id="card-{{ loop.index }}" class="card-content">
                 <form onsubmit="saveSettings(event, '{{ tv.name }}')">
                     <input type="hidden" name="old_name" value="{{ tv.name }}">
                     
@@ -139,18 +191,38 @@
     </div>
 
     <script>
-        // Functie voor inklappen
         function toggleCard(id, header) {
             const content = document.getElementById(id);
             const arrow = header.querySelector('.arrow-icon');
+            const isShowing = content.style.display === "block" || content.classList.contains('show');
             
-            if (content.style.display === "block" || content.classList.contains('show')) {
+            if (isShowing) {
                 content.style.display = "none";
                 content.classList.remove('show');
                 arrow.style.transform = "rotate(0deg)";
             } else {
                 content.style.display = "block";
                 arrow.style.transform = "rotate(180deg)";
+            }
+        }
+
+        async function pairDevice(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            try {
+                const response = await fetch('api/pair_with_device', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    alert('Apparaat succesvol gekoppeld aan de add-on!');
+                    location.reload();
+                } else {
+                    alert('Fout: ' + (result.status || 'Onbekende fout bij koppelen.'));
+                }
+            } catch (error) {
+                alert('Kon de TV niet bereiken op het opgegeven IP.');
             }
         }
 
@@ -170,13 +242,12 @@
                 });
                 
                 if (response.ok) {
-                    alert('Instellingen voor ' + name + ' succesvol opgeslagen!');
+                    alert('Planning opgeslagen!');
                     location.reload();
                 } else {
                     alert('Er ging iets mis bij het opslaan.');
                 }
             } catch (error) {
-                console.error('Error:', error);
                 alert('Netwerkfout bij opslaan.');
             }
         }
