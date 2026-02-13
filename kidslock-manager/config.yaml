@@ -1,27 +1,29 @@
-name: "KidsLock Manager"
-version: "2.6.1"
-slug: "kidslock-manager"
-description: "v2.6.1 - MQTT fixes"
-url: "https://github.com/svdveer/kidslock-repository"
+name: "KidsLock TV Manager"
+description: "Family-stijl ouderlijk toezicht voor Android TV"
+version: "2.5.0"
+slug: "kidslock_tv"
 arch:
   - aarch64
   - amd64
+  - armhf
   - armv7
-startup: services
-boot: auto
-ingress: true
-ingress_port: 8000
-panel_icon: "mdi:shield-lock"
-mqtt: true
+init: false
+map:
+  - "share:rw"
+  - "config:rw"
 options:
-  mqtt:
-    host: "core-mosquitto"
-    port: 1883
-    username: "kidslocktv"
-    password: ""
+  mqtt_host: "core-mosquitto"
+  mqtt_port: 1883
+  mqtt_user: ""
+  mqtt_password: ""
 schema:
-  mqtt:
-    host: str?
-    port: int?
-    username: str?
-    password: str?
+  mqtt_host: str
+  mqtt_port: int
+  mqtt_user: str?
+  mqtt_password: str?
+ports:
+  8000/tcp: 8000
+webui: "http://[HOST]:[PORT:8000]/"
+mqtt: true
+services:
+  - mqtt:need
