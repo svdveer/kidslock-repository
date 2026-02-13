@@ -11,11 +11,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
 
-# --- UNIVERSELE CONFIGURATIE ---
-MQTT_HOST = os.getenv("MQTT_HOST", "core-mosquitto")
-MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
-MQTT_USER = os.getenv("MQTT_USER", "kidslocktv")
-MQTT_PASS = os.getenv("MQTT_PASSWORD", "VUL_HIER_JE_WACHTWOORD_IN") 
+# --- SUPER-ROBUUSTE MQTT CONFIGURATIE ---
+# We checken zowel de HA-standaard als de handmatige opties
+MQTT_HOST = os.getenv("MQTT_HOST") or os.getenv("mqtt_host") or "core-mosquitto"
+MQTT_PORT = int(os.getenv("MQTT_PORT") or os.getenv("mqtt_port") or 1883)
+MQTT_USER = os.getenv("MQTT_USER") or os.getenv("mqtt_user") or "kidslocktv"
+MQTT_PASS = os.getenv("MQTT_PASSWORD") or os.getenv("mqtt_password") or ""
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -37,10 +38,14 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# --- MQTT LOGICA ---
+# --- MQTT SETUP ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+    logger.info(f"MQTT: Probeert te verbinden als '{MQTT_USER}' op {MQTT_HOST}")
+else:
+    logger.warning("MQTT: Geen wachtwoord gevonden! Controleer de Add-on opties.")
 
 def on_mqtt_message(client, userdata, msg):
     try:
@@ -55,7 +60,6 @@ def on_mqtt_message(client, userdata, msg):
                     bonus = int(payload.replace("+", ""))
                     with sqlite3.connect(DB_PATH) as c:
                         c.execute("UPDATE tv_configs SET elapsed = ? WHERE ip = ?", (max(0, float(elapsed) - bonus), ip))
-                    logger.info(f"Bonus: {bonus} min naar {name}")
                 elif payload in ["lock", "unlock"]:
                     requests.post(f"http://{ip}:8081/{payload}", timeout=2)
     except Exception as e: logger.error(f"MQTT Error: {e}")
@@ -71,15 +75,15 @@ def publish_discovery():
             mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({**base, "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem"}), retain=True)
             mqtt_client.publish(f"kidslock/{slug}/status", "online", retain=True)
             mqtt_client.subscribe(f"kidslock/{slug}/set")
-        logger.info("MQTT: Discovery & Subscriptions uitgevoerd.")
+        logger.info("MQTT: Discovery verzonden.")
     except: pass
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info(f"MQTT: ✅ Succesvol verbonden met {MQTT_HOST}")
+        logger.info("MQTT: ✅ Verbonden!")
         publish_discovery()
     else:
-        logger.error(f"MQTT: ❌ Verbinding geweigerd (RC: {rc})")
+        logger.error(f"MQTT: ❌ Geweigerd (RC: {rc}). Check je wachtwoord bij de Add-on opties!")
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_mqtt_message
@@ -104,7 +108,9 @@ def monitor_task():
                 try:
                     with socket.create_connection((ip, 8081), timeout=0.4):
                         if no_limit: mqtt_client.publish(f"kidslock/{slug}/remaining", "∞")
-                        elif now.strftime("%H:%M") >= bedtime: requests.post(f"http://{ip}:8081/lock", timeout=1); mqtt_client.publish(f"kidslock/{slug}/remaining", "BEDTIME")
+                        elif now.strftime("%H:%M") >= bedtime: 
+                            requests.post(f"http://{ip}:8081/lock", timeout=1)
+                            mqtt_client.publish(f"kidslock/{slug}/remaining", "BEDTIME")
                         else:
                             new_el = float(elapsed) + delta
                             conn.execute("UPDATE tv_configs SET elapsed = ? WHERE name = ?", (new_el, name))

@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "2.5.3"
+version: "2.5.4"
 slug: "kidslock-manager"
-description: "v2.5.3 - Premium Family Link Experience"
+description: "v2.5.4 - Unified Family Link Controller"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
