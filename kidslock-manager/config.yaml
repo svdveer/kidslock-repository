@@ -1,7 +1,7 @@
 name: "KidsLock Manager"
-version: "2.6.1"
+version: "2.6.2"
 slug: "kidslock-manager"
-description: "v2.6.1 - MQTT fixes"
+description: "v2.6.2 - Web interface design"
 url: "https://github.com/svdveer/kidslock-repository"
 arch:
   - aarch64
