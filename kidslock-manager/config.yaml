@@ -1,6 +1,6 @@
 name: "KidsLock Manager"
 description: "Family-stijl ouderlijk toezicht voor Android TV"
-version: "2.5.0"
+version: "2.5.1"
 slug: "kidslock-manager"
 arch:
   - aarch64
