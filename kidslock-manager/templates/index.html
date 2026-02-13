@@ -4,18 +4,62 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="static/style.css">
-    <title>KidsLock</title>
+    <title>KidsLock Family</title>
+    <style>
+        /* Hier staat je CSS nu direct in het bestand */
+        :root {
+            --bg: #f8f9fa;
+            --card: #ffffff;
+            --primary: #1a73e8;
+            --danger: #d93025;
+            --success: #188038;
+        }
+
+        body { 
+            background: var(--bg); 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+        }
+
+        .family-card { 
+            background: var(--card); 
+            border-radius: 28px; 
+            padding: 24px;
+            border: 1px solid #dadce0;
+            margin-bottom: 20px;
+        }
+
+        .avatar-circle {
+            width: 48px; height: 48px;
+            background: #e8f0fe; color: var(--primary);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 1.2rem;
+        }
+
+        .bedtime-pill {
+            background: #fff7e0; color: #b06000;
+            padding: 6px 12px; border-radius: 100px; font-size: 0.85rem; font-weight: 500;
+        }
+
+        .time-big { font-size: 4rem; font-weight: 700; color: #202124; line-height: 1; }
+        .time-big small { font-size: 1.2rem; font-weight: 400; color: #5f6368; }
+
+        .btn-lock { background: #202124; color: white; border-radius: 100px; border: none; font-weight: 500; width: 100%; padding: 15px; }
+        .btn-unlock { background: var(--primary); color: white; border-radius: 100px; border: none; font-weight: 500; width: 100%; padding: 15px; }
+        .btn-light { background: #f1f3f4; color: #202124; border-radius: 100px; border: none; padding: 10px; font-weight: 500; width: 100%; }
+        
+        .header-section { margin-top: 20px; margin-bottom: 30px; }
+    </style>
 </head>
 <body>
     <div class="container py-4" style="max-width: 500px;">
-        <div class="header-section mb-5 text-center">
-            <h1 class="fw-bold" style="color: #202124;">KidsLock</h1>
+        <div class="header-section text-center">
+            <h1 class="fw-bold">KidsLock</h1>
             <p class="text-muted">Gezinsbeheer</p>
         </div>
 
         {% for tv in tvs %}
-        <div class="family-card shadow-sm mb-4">
+        <div class="family-card shadow-sm">
             <div class="card-top d-flex justify-content-between align-items-center">
                 <div class="user-info d-flex align-items-center">
                     <div class="avatar-circle me-3">{{ tv.name[0] }}</div>
@@ -38,17 +82,17 @@
             <div class="action-grid mt-4">
                 <div class="d-grid gap-2">
                     {% if tv.locked %}
-                    <button class="btn-unlock py-3" onclick="tvAction('{{ tv.ip }}', 'unlock')">Ontgrendelen 🔓</button>
+                    <button class="btn-unlock" onclick="tvAction('{{ tv.ip }}', 'unlock')">Ontgrendelen 🔓</button>
                     {% else %}
-                    <button class="btn-lock py-3" onclick="tvAction('{{ tv.ip }}', 'lock')">Vergrendelen 🔒</button>
+                    <button class="btn-lock" onclick="tvAction('{{ tv.ip }}', 'lock')">Vergrendelen 🔒</button>
                     {% endif %}
                     
-                    <div class="row g-2">
+                    <div class="row g-2 mt-1">
                         <div class="col-6">
-                            <button class="btn-light w-100" onclick="tvAction('{{ tv.ip }}', 'unlock')">Forceer Open</button>
+                            <button class="btn-light" onclick="tvAction('{{ tv.ip }}', 'unlock')">Forceer Open</button>
                         </div>
                         <div class="col-6">
-                            <button class="btn-light w-100" onclick="location.href='settings'">Instellingen ⚙️</button>
+                            <button class="btn-light" onclick="window.location.href='settings'">Instellingen ⚙️</button>
                         </div>
                     </div>
                 </div>
@@ -65,7 +109,6 @@
                 method: 'POST', 
                 body: fd 
             }).then(() => {
-                // Korte pauze voor de database update voordat we herladen
                 setTimeout(() => location.reload(), 500);
             });
         }
