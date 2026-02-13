@@ -3,48 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="static/style.css">
-    <title>KidsLock</title>
+    <title>KidsLock Family</title>
 </head>
 <body>
-    <div class="container-main">
-        <h1 class="title">KidsLock</h1>
+    <div class="container py-4" style="max-width: 500px;">
+        <div class="header-section mb-5 text-center">
+            <h1 class="fw-bold">KidsLock</h1>
+            <p class="text-muted">Gezinsbeheer</p>
+        </div>
+
         {% for tv in tvs %}
-        <div class="family-card">
-            <div class="card-header">
-                <div class="user-block">
-                    <div class="avatar">{{ tv.name[0] }}</div>
-                    <span class="user-name">{{ tv.name }}</span>
+        <div class="family-card shadow-sm mb-4">
+            <div class="card-top d-flex justify-content-between align-items-center">
+                <div class="user-info d-flex align-items-center">
+                    <div class="avatar-circle me-3">{{ tv.name[0] }}</div>
+                    <div>
+                        <h2 class="h5 fw-bold m-0">{{ tv.name }}</h2>
+                        <span class="text-muted small">{{ tv.ip }}</span>
+                    </div>
                 </div>
-                <div class="bedtime-tag">🌙 {{ tv.bedtime }}</div>
+                <div class="bedtime-pill">🌙 {{ tv.bedtime }}</div>
             </div>
-            <div class="time-main">
-                <div class="time-value">{% if tv.no_limit %}∞{% else %}{{ tv.remaining }}{% endif %}</div>
-                <div class="time-label">minuten resterend</div>
-            </div>
-            {% if not tv.no_limit %}
-            <div class="progress-wrap">
-                {% set pct = (tv.elapsed / tv.limit * 100) | int %}
-                <div class="progress-bg">
-                    <div class="progress-fill" style="width: {{ pct if pct < 100 else 100 }}%;"></div>
+
+            <div class="time-main text-center mt-4">
+                <div class="time-big">
+                    {% if tv.no_limit %}∞{% else %}{{ tv.remaining }}{% endif %}
+                    <small>min</small>
                 </div>
+                <p class="text-muted small">Vandaag resterend</p>
             </div>
-            {% endif %}
-            <div class="btn-grid">
-                <button class="btn btn-lock" onclick="tvAction('{{ tv.ip }}', 'lock')">Vergrendel 🔒</button>
-                <button class="btn btn-sub" onclick="tvAction('{{ tv.ip }}', 'unlock')">Openen</button>
-                <button class="btn btn-sub" onclick="tvAction('{{ tv.ip }}', 'reset')">Reset</button>
-                <button class="btn btn-bonus" onclick="tvAction('{{ tv.ip }}', '+15')">+15m</button>
-                <button class="btn btn-bonus" onclick="tvAction('{{ tv.ip }}', '+30')">+30m</button>
+
+            <div class="action-grid mt-4">
+                {% if tv.locked %}
+                <button class="btn btn-unlock w-100 py-3 mb-2" onclick="tvAction('{{ tv.ip }}', 'unlock')">Ontgrendelen 🔓</button>
+                {% else %}
+                <button class="btn btn-lock w-100 py-3 mb-2" onclick="tvAction('{{ tv.ip }}', 'lock')">Vergrendelen 🔒</button>
+                {% endif %}
+                <div class="row g-2">
+                    <div class="col-12"><button class="btn btn-light w-100" onclick="location.href='settings'">⚙️ Instellingen</button></div>
+                </div>
             </div>
         </div>
         {% endfor %}
-        <div class="footer-nav"><a href="settings">⚙️ Instellingen</a></div>
     </div>
+
     <script>
         function tvAction(ip, act) {
-            const fd = new FormData(); fd.append('ip', ip); fd.append('action', act);
-            fetch('api/tv_action', { method: 'POST', body: fd }).then(() => setTimeout(() => location.reload(), 400));
+            const fd = new FormData(); fd.append('action', act);
+            fetch('api/action/' + ip, { method: 'POST', body: fd }).then(() => location.reload());
         }
     </script>
 </body>
