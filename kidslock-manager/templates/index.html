@@ -4,21 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/bootstrap.min.css" rel="stylesheet">
-    <title>KidsLock Family</title>
+    <title>KidsLock Dashboard</title>
     <style>
-        /* Hier staat je CSS nu direct in het bestand */
         :root {
             --bg: #f8f9fa;
             --card: #ffffff;
             --primary: #1a73e8;
-            --danger: #d93025;
-            --success: #188038;
+            --text: #202124;
+            --muted: #5f6368;
         }
 
         body { 
             background: var(--bg); 
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            color: var(--text);
         }
+
+        .header-section { margin-top: 30px; margin-bottom: 40px; }
 
         .family-card { 
             background: var(--card); 
@@ -26,7 +28,10 @@
             padding: 24px;
             border: 1px solid #dadce0;
             margin-bottom: 20px;
+            transition: box-shadow 0.3s ease;
         }
+
+        .family-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
 
         .avatar-circle {
             width: 48px; height: 48px;
@@ -38,25 +43,43 @@
 
         .bedtime-pill {
             background: #fff7e0; color: #b06000;
-            padding: 6px 12px; border-radius: 100px; font-size: 0.85rem; font-weight: 500;
+            padding: 6px 14px; border-radius: 100px; font-size: 0.85rem; font-weight: 600;
         }
 
-        .time-big { font-size: 4rem; font-weight: 700; color: #202124; line-height: 1; }
-        .time-big small { font-size: 1.2rem; font-weight: 400; color: #5f6368; }
+        .time-main { margin: 30px 0; }
+        .time-big { font-size: 4.5rem; font-weight: 700; color: var(--text); line-height: 1; }
+        .time-big small { font-size: 1.2rem; font-weight: 400; color: var(--muted); margin-left: 4px; }
 
-        .btn-lock { background: #202124; color: white; border-radius: 100px; border: none; font-weight: 500; width: 100%; padding: 15px; }
-        .btn-unlock { background: var(--primary); color: white; border-radius: 100px; border: none; font-weight: 500; width: 100%; padding: 15px; }
-        .btn-light { background: #f1f3f4; color: #202124; border-radius: 100px; border: none; padding: 10px; font-weight: 500; width: 100%; }
+        /* Knoppen */
+        .btn-lock { background: #202124; color: white; border-radius: 100px; border: none; font-weight: 600; width: 100%; padding: 16px; transition: opacity 0.2s; }
+        .btn-unlock { background: var(--primary); color: white; border-radius: 100px; border: none; font-weight: 600; width: 100%; padding: 16px; transition: opacity 0.2s; }
+        .btn-light { background: #f1f3f4; color: var(--text); border-radius: 100px; border: none; padding: 12px; font-weight: 600; width: 100%; text-decoration: none; display: block; text-align: center; }
         
-        .header-section { margin-top: 20px; margin-bottom: 30px; }
+        .btn-lock:active, .btn-unlock:active { opacity: 0.8; }
+
+        /* Empty State */
+        .empty-state {
+            padding: 60px 20px;
+            text-align: center;
+        }
+        .empty-icon { font-size: 4rem; margin-bottom: 20px; display: block; }
     </style>
 </head>
 <body>
     <div class="container py-4" style="max-width: 500px;">
         <div class="header-section text-center">
             <h1 class="fw-bold">KidsLock</h1>
-            <p class="text-muted">Gezinsbeheer</p>
+            <p class="text-muted small">Manager v2.6.4 • Gezinsbeheer</p>
         </div>
+
+        {% if not tvs %}
+        <div class="family-card empty-state shadow-sm">
+            <span class="empty-icon">📺</span>
+            <h2 class="h5 fw-bold">Geen apparaten gevonden</h2>
+            <p class="text-muted small mb-4">Voeg je eerste Android TV toe in de instellingen om te beginnen met beheren.</p>
+            <a href="settings" class="btn-unlock d-inline-block px-5 text-decoration-none">Naar Instellingen</a>
+        </div>
+        {% endif %}
 
         {% for tv in tvs %}
         <div class="family-card shadow-sm">
@@ -71,20 +94,20 @@
                 <div class="bedtime-pill">🌙 {{ tv.bedtime }}</div>
             </div>
 
-            <div class="time-main text-center mt-4">
+            <div class="time-main text-center">
                 <div class="time-big">
                     {% if tv.no_limit %}∞{% else %}{{ tv.remaining }}{% endif %}
                     <small>min</small>
                 </div>
-                <p class="text-muted small">Vandaag resterend</p>
+                <p class="text-muted small mt-2">Resterend voor vandaag</p>
             </div>
 
             <div class="action-grid mt-4">
                 <div class="d-grid gap-2">
                     {% if tv.locked %}
-                    <button class="btn-unlock" onclick="tvAction('{{ tv.ip }}', 'unlock')">Ontgrendelen 🔓</button>
+                    <button class="btn-unlock shadow-sm" onclick="tvAction('{{ tv.ip }}', 'unlock')">Ontgrendelen 🔓</button>
                     {% else %}
-                    <button class="btn-lock" onclick="tvAction('{{ tv.ip }}', 'lock')">Vergrendelen 🔒</button>
+                    <button class="btn-lock shadow-sm" onclick="tvAction('{{ tv.ip }}', 'lock')">Vergrendelen 🔒</button>
                     {% endif %}
                     
                     <div class="row g-2 mt-1">
@@ -92,13 +115,19 @@
                             <button class="btn-light" onclick="tvAction('{{ tv.ip }}', 'unlock')">Forceer Open</button>
                         </div>
                         <div class="col-6">
-                            <button class="btn-light" onclick="window.location.href='settings'">Instellingen ⚙️</button>
+                            <a href="settings" class="btn-light">Instellingen ⚙️</a>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
         {% endfor %}
+
+        {% if tvs %}
+        <div class="text-center mt-4">
+            <p class="text-muted small">Status updates elke 30 seconden</p>
+        </div>
+        {% endif %}
     </div>
 
     <script>
@@ -109,6 +138,7 @@
                 method: 'POST', 
                 body: fd 
             }).then(() => {
+                // Korte vertraging voor verwerking in DB
                 setTimeout(() => location.reload(), 500);
             });
         }

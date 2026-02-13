@@ -20,11 +20,33 @@
 
         .settings-card { 
             background: var(--card); 
-            border-radius: 24px; 
-            padding: 25px;
+            border-radius: 20px; 
             border: 1px solid #dadce0;
-            margin-bottom: 25px;
+            margin-bottom: 15px;
+            overflow: hidden; /* Nodig voor strakke hoeken bij inklappen */
         }
+
+        /* De header waar je op klikt */
+        .card-header-toggle {
+            padding: 20px 25px;
+            background: #fff;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        .card-header-toggle:hover { background: #f1f3f4; }
+
+        /* Het gedeelte dat in/uitklapt */
+        .card-content {
+            padding: 0 25px 25px 25px;
+            display: none; /* Standaard dicht */
+        }
+
+        .card-content.show { display: block; }
 
         .nav-back {
             text-decoration: none;
@@ -36,102 +58,107 @@
         }
 
         .day-row {
-            padding: 12px 0;
+            padding: 10px 0;
             border-bottom: 1px solid #f1f3f4;
         }
 
-        .day-row:last-child { border-bottom: none; }
-
-        .form-label {
-            font-size: 0.9rem;
-            font-weight: 600;
-            color: #5f6368;
-            margin-bottom: 4px;
-        }
-
-        .form-control {
-            border-radius: 10px;
-            border: 1px solid #dadce0;
-        }
+        .form-label { font-size: 0.85rem; font-weight: 600; color: #5f6368; margin-bottom: 2px; }
+        .form-control { border-radius: 8px; font-size: 0.9rem; }
 
         .btn-save {
             background: var(--primary);
             color: white;
             border-radius: 100px;
-            padding: 12px 30px;
+            padding: 10px;
             border: none;
             font-weight: 600;
             width: 100%;
-            margin-top: 20px;
+            margin-top: 15px;
         }
 
-        .section-title {
-            font-size: 1.1rem;
-            font-weight: 700;
-            margin-bottom: 20px;
-            color: #202124;
+        .arrow-icon {
+            transition: transform 0.3s;
+            font-size: 0.8rem;
         }
+
+        .show + .arrow-icon { transform: rotate(180deg); }
     </style>
 </head>
 <body>
     <div class="container py-4" style="max-width: 600px;">
-        <a href="/" class="nav-back">← Terug naar Dashboard</a>
+        <a href="./" class="nav-back">← Terug naar Dashboard</a>
         
         <h1 class="fw-bold mb-4">Instellingen</h1>
 
         {% for tv in tvs %}
         <div class="settings-card shadow-sm">
-            <div class="section-title">Planning voor {{ tv.name }}</div>
+            <div class="card-header-toggle" onclick="toggleCard('card-{{ loop.index }}', this)">
+                <div class="fw-bold text-dark">Planning voor {{ tv.name }}</div>
+                <div class="arrow-icon text-muted">▼</div>
+            </div>
             
-            <form onsubmit="saveSettings(event, '{{ tv.name }}')">
-                <input type="hidden" name="old_name" value="{{ tv.name }}">
-                
-                <div class="mb-4">
-                    <label class="form-label">Naam Apparaat</label>
-                    <input type="text" class="form-control" name="new_name" value="{{ tv.name }}">
-                </div>
-
-                <div class="mb-4">
-                    <label class="form-label">Opties</label>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" name="no_limit" value="1" {% if tv.no_limit %}checked{% endif %}>
-                        <label class="form-check-label">Geen tijdslimiet (Altijd aan)</label>
-                    </div>
-                </div>
-
-                <hr>
-
-                <div class="schedule-grid">
-                    {% for day in [('mon','Maandag'), ('tue','Dinsdag'), ('wed','Woensdag'), ('thu','Donderdag'), ('fri','Vrijdag'), ('sat','Zaterdag'), ('sun','Zondag')] %}
-                    <div class="day-row">
-                        <div class="row align-items-center">
-                            <div class="col-4 fw-bold">{{ day[1] }}:</div>
-                            <div class="col-4">
-                                <label class="form-label small">Limiet (min)</label>
-                                <input type="number" class="form-control" name="{{ day[0] }}_lim" value="{{ tv[day[0] + '_lim'] }}">
-                            </div>
-                            <div class="col-4">
-                                <label class="form-label small">Bedtijd</label>
-                                <input type="time" class="form-control" name="{{ day[0] }}_bed" value="{{ tv[day[0] + '_bed'] }}">
-                            </div>
+            <div id="card-{{ loop.index }}" class="card-content {% if loop.first %}show{% endif %}">
+                <form onsubmit="saveSettings(event, '{{ tv.name }}')">
+                    <input type="hidden" name="old_name" value="{{ tv.name }}">
+                    
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-12">
+                            <label class="form-label">Naam Apparaat</label>
+                            <input type="text" class="form-control" name="new_name" value="{{ tv.name }}">
                         </div>
                     </div>
-                    {% endfor %}
-                </div>
 
-                <button type="submit" class="btn-save shadow-sm">Planning Opslaan</button>
-            </form>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" name="no_limit" value="1" {% if tv.no_limit %}checked{% endif %}>
+                        <label class="form-check-label small">Geen tijdslimiet (Altijd aan)</label>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="schedule-grid">
+                        {% for day in [('mon','Maandag'), ('tue','Dinsdag'), ('wed','Woensdag'), ('thu','Donderdag'), ('fri','Vrijdag'), ('sat','Zaterdag'), ('sun','Zondag')] %}
+                        <div class="day-row">
+                            <div class="row align-items-center g-2">
+                                <div class="col-4 small fw-bold text-secondary">{{ day[1] }}</div>
+                                <div class="col-4">
+                                    <input type="number" class="form-control form-control-sm" name="{{ day[0] }}_lim" value="{{ tv[day[0] + '_lim'] }}" placeholder="Min">
+                                </div>
+                                <div class="col-4">
+                                    <input type="time" class="form-control form-control-sm" name="{{ day[0] }}_bed" value="{{ tv[day[0] + '_bed'] }}">
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <button type="submit" class="btn-save shadow-sm">Planning Opslaan</button>
+                </form>
+            </div>
         </div>
         {% endfor %}
     </div>
 
     <script>
+        // Functie voor inklappen
+        function toggleCard(id, header) {
+            const content = document.getElementById(id);
+            const arrow = header.querySelector('.arrow-icon');
+            
+            if (content.style.display === "block" || content.classList.contains('show')) {
+                content.style.display = "none";
+                content.classList.remove('show');
+                arrow.style.transform = "rotate(0deg)";
+            } else {
+                content.style.display = "block";
+                arrow.style.transform = "rotate(180deg)";
+            }
+        }
+
         async function saveSettings(event, name) {
             event.preventDefault();
             const form = event.target;
             const formData = new FormData(form);
             
-            // Fix voor checkbox (no_limit)
             if (!formData.has('no_limit')) {
                 formData.append('no_limit', '0');
             }
