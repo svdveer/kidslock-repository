@@ -32,11 +32,15 @@ def init_db():
 
 init_db()
 
-# root_path zorgt dat Ingress de interne API routes kan vinden
-app = FastAPI(root_path="/api/hassio_ingress/" + os.getenv("HOSTNAME", ""))
+# Dynamische root_path voor Ingress ondersteuning
+app = FastAPI()
+if os.getenv("SUPERVISOR_TOKEN"):
+    app = FastAPI(root_path="/api/hassio_ingress/" + os.getenv("HOSTNAME", ""))
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# --- MQTT ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER: mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
@@ -61,6 +65,7 @@ mqtt_client.on_connect = lambda c,u,f,rc,p=None: mqtt_client.subscribe("kidslock
 try: mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, 60); mqtt_client.loop_start()
 except: pass
 
+# --- MONITOR ---
 def monitor_task():
     last_tick = time.time()
     while True:
@@ -87,6 +92,7 @@ def monitor_task():
 
 threading.Thread(target=monitor_task, daemon=True).start()
 
+# --- ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     day = datetime.now().strftime("%a").lower()
@@ -104,13 +110,6 @@ async def settings_ui(request: Request):
         tvs.append({"name":r[0], "ip":r[1], "no_limit":r[2], "mon_lim":r[5], "mon_bed":r[6], "tue_lim":r[7], "tue_bed":r[8], "wed_lim":r[9], "wed_bed":r[10], "thu_lim":r[11], "thu_bed":r[12], "fri_lim":r[13], "fri_bed":r[14], "sat_lim":r[15], "sat_bed":r[16], "sun_lim":r[17], "sun_bed":r[18]})
     return templates.TemplateResponse("settings.html", {"request": request, "tvs": tvs})
 
-@app.post("/api/update_tv")
-async def update_tv(request: Request):
-    d = await request.form()
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("UPDATE tv_configs SET name=?, no_limit=?, mon_lim=?, mon_bed=?, tue_lim=?, tue_bed=?, wed_lim=?, wed_bed=?, thu_lim=?, thu_bed=?, fri_lim=?, fri_bed=?, sat_lim=?, sat_bed=?, sun_lim=?, sun_bed=? WHERE name=?", (d['new_name'], int(d['no_limit']), d['mon_lim'], d['mon_bed'], d['tue_lim'], d['tue_bed'], d['wed_lim'], d['wed_bed'], d['thu_lim'], d['thu_bed'], d['fri_lim'], d['fri_bed'], d['sat_lim'], d['sat_bed'], d['sun_lim'], d['sun_bed'], d['old_name']))
-    return {"status": "ok"}
-
 @app.post("/api/tv_action")
 async def tv_action(ip: str = Form(...), action: str = Form(...)):
     if action == "reset": 
@@ -123,17 +122,12 @@ async def tv_action(ip: str = Form(...), action: str = Form(...)):
     try: requests.post(f"http://{ip}:8081/{action}", timeout=2); return {"status": "ok"}
     except: return {"status": "error"}
 
-@app.post("/api/pair_with_device")
-async def pair(ip: str=Form(...), code: str=Form(...)):
-    try:
-        api_key = secrets.token_hex(16)
-        r = requests.post(f"http://{ip}:8081/pair", data={"code": code, "api_key": api_key}, timeout=5)
-        if r.status_code == 200:
-            with sqlite3.connect(DB_PATH) as conn:
-                tv_name = f"TV_{ip.split('.')[-1]}"
-                conn.execute("INSERT OR REPLACE INTO tv_configs (name, ip, last_reset) VALUES (?, ?, ?)", (tv_name, ip, datetime.now().strftime("%Y-%m-%d")))
-            return {"status": "success"}
-    except: pass
-    return JSONResponse({"status": "error"}, status_code=400)
+@app.post("/api/update_tv")
+async def update_tv(request: Request):
+    d = await request.form()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("UPDATE tv_configs SET name=?, no_limit=?, mon_lim=?, mon_bed=?, tue_lim=?, tue_bed=?, wed_lim=?, wed_bed=?, thu_lim=?, thu_bed=?, fri_lim=?, fri_bed=?, sat_lim=?, sat_bed=?, sun_lim=?, sun_bed=? WHERE name=?", (d['new_name'], int(d['no_limit']), d['mon_lim'], d['mon_bed'], d['tue_lim'], d['tue_bed'], d['wed_lim'], d['wed_bed'], d['thu_lim'], d['thu_bed'], d['fri_lim'], d['fri_bed'], d['sat_lim'], d['sat_bed'], d['sun_lim'], d['sun_bed'], d['old_name']))
+    return {"status": "ok"}
 
-if __name__ == "__main__": uvicorn.run(app, host="0.0.0.0", port=8000)
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
