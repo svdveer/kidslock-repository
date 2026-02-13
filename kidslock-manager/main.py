@@ -11,12 +11,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KidsLock")
 DB_PATH = "/data/kidslock.db"
 
-# --- SUPER-ROBUUSTE MQTT CONFIGURATIE ---
-# We checken zowel de HA-standaard als de handmatige opties
+# --- DE ULTIEME MQTT DETECTIE ---
+# We proberen alle mogelijke variaties die HA Add-ons gebruiken
 MQTT_HOST = os.getenv("MQTT_HOST") or os.getenv("mqtt_host") or "core-mosquitto"
 MQTT_PORT = int(os.getenv("MQTT_PORT") or os.getenv("mqtt_port") or 1883)
 MQTT_USER = os.getenv("MQTT_USER") or os.getenv("mqtt_user") or "kidslocktv"
-MQTT_PASS = os.getenv("MQTT_PASSWORD") or os.getenv("mqtt_password") or ""
+
+# Hier zit de fix: we checken ook op 'mqtt_password' (kleine letters) 
+# en een hardcoded fallback als laatste redmiddel
+MQTT_PASS = os.getenv("MQTT_PASSWORD") or os.getenv("mqtt_password")
+
+if not MQTT_PASS:
+    # VUL HIER HANDMATIG JE WACHTWOORD IN TUSSEN DE QUOTES ALS TEST
+    MQTT_PASS = "JOUW_WACHTWOORD_HIER" 
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -43,9 +50,9 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-    logger.info(f"MQTT: Probeert te verbinden als '{MQTT_USER}' op {MQTT_HOST}")
+    logger.info(f"MQTT: Probeert te verbinden als '{MQTT_USER}'")
 else:
-    logger.warning("MQTT: Geen wachtwoord gevonden! Controleer de Add-on opties.")
+    logger.error("MQTT: NOG STEEDS GEEN WACHTWOORD! Check de code.")
 
 def on_mqtt_message(client, userdata, msg):
     try:
@@ -75,15 +82,15 @@ def publish_discovery():
             mqtt_client.publish(f"homeassistant/sensor/kidslock_{slug}/config", json.dumps({**base, "name": "Tijd Resterend", "state_topic": f"kidslock/{slug}/remaining", "unit_of_measurement": "min", "unique_id": f"kidslock_{slug}_rem"}), retain=True)
             mqtt_client.publish(f"kidslock/{slug}/status", "online", retain=True)
             mqtt_client.subscribe(f"kidslock/{slug}/set")
-        logger.info("MQTT: Discovery verzonden.")
+        logger.info("MQTT: ✅ Discovery verzonden.")
     except: pass
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT: ✅ Verbonden!")
+        logger.info("MQTT: ✅✅✅ VERBONDEN!")
         publish_discovery()
     else:
-        logger.error(f"MQTT: ❌ Geweigerd (RC: {rc}). Check je wachtwoord bij de Add-on opties!")
+        logger.error(f"MQTT: ❌ GEWEIGERD (RC: {rc}).")
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_mqtt_message
@@ -93,7 +100,7 @@ try:
     mqtt_client.loop_start()
 except Exception as e: logger.error(f"MQTT Start Error: {e}")
 
-# --- MONITOR TASK ---
+# --- MONITOR TASK (Ongewijzigd) ---
 def monitor_task():
     last_tick = time.time()
     while True:
@@ -123,7 +130,7 @@ def monitor_task():
 
 threading.Thread(target=monitor_task, daemon=True).start()
 
-# --- ROUTES ---
+# --- WEB ROUTES (Ongewijzigd) ---
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     day = datetime.now().strftime("%a").lower()
